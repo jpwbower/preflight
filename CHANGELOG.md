@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0]
+
+Adds two carry-forward closures from v0.3/v0.4 and a Windows
+quality-of-life fix: SSR raw-response html-validate pass behind a new
+config flag, an opinionated default `snapshotPathTemplate` so visual
+baselines land inside the consumer's project, and a lychee `.cmd`-shim
+fallback for Scoop installs. macOS VoiceOver remains deferred to v0.6+
+(still no Mac dev box in the validation loop).
+
+### Added
+
+- `htmlValidateRaw` config field (boolean, default `false`). When
+  enabled, `html-validate.spec` emits TWO independent test cases per
+  route under `--release`: a post-hydration pass (existing
+  `page.content()` behaviour) and a new raw-response pass that fetches
+  the route via Node `fetch` and validates the response body directly.
+  The raw pass catches SSR markup bugs the browser normalises before
+  the post-hydration pass observes them (e.g. lowercase `<!doctype>`).
+  Documented as surfacing-by-design for authenticated routes: the raw
+  fetch does NOT carry `cfg.auth` storageState cookies, so the response
+  body is the unauthenticated first-paint markup — exactly the signal
+  the post-hydration pass cannot reach.
+
+- Default `snapshotPathTemplate` for `--visual`. Without configuration,
+  baselines now land at `${consumerProjectRoot}/__preflight_screenshots__/{arg}{ext}`
+  — outside `node_modules/`, ready to check in, survives `npm install`.
+  Consumer-supplied `playwrightOverrides.snapshotPathTemplate` still
+  wins via the spread mechanic; use an absolute path or `{testDir}`-
+  prefixed template to override.
+
+### Changed
+
+- `markup on $name ($path)` test title (the existing html-validate
+  release pass) is unchanged when `htmlValidateRaw` is `false`. When
+  the flag is `true`, the two passes use `markup on $name ($path) (post-hydration)`
+  and `markup on $name ($path) (raw response)` to disambiguate.
+
+### Fixed
+
+- **lychee `.cmd`-shim ENOENT on Windows.** Scoop and npm-installed
+  lychee on Windows register as `lychee.cmd`. v0.4's bare
+  `spawn('lychee', ...)` couldn't resolve PATHEXT, so Scoop-only
+  installs got "command not found" even though lychee was installed.
+  v0.5 retries through cmd.exe on Windows when the primary spawn
+  ENOENTs, letting PATHEXT resolve to `.cmd`. The `.exe` primary path
+  is unchanged. Applied to both the main `lychee` invocation and the
+  `--version` compatibility probe.
+
+  The retry uses `shell: true`, which trips Node's DEP0190 deprecation
+  warning ("args are not escaped, only concatenated"). The args list is
+  config-derived (`baseURL` + `route.path`) and is not sanitised against
+  cmd-metacharacters — acceptable trade-off for the retry path only;
+  documented in README known-issues.
+
 ## [0.4.0]
 
 Adds the three highest-leverage v0.4 deliverables: Chromium-CDP network

@@ -173,6 +173,68 @@ The four cadences exist so each test pays its wallclock cost at the right moment
 
 These are the rough edges to know about before you wire preflight into CI.
 
+### v0.5 additions
+
+- **SSR raw-response html-validate pass (`cfg.htmlValidateRaw`).** Closes
+  the v0.4 carry-forward "html-validate runs against post-hydration DOM
+  only". Set `cfg.htmlValidateRaw: true` and the `--release`
+  html-validate spec runs TWO independent passes per route:
+
+  ```
+  markup on home (/) (post-hydration)   ← page.content()
+  markup on home (/) (raw response)     ← Node fetch + response.text()
+  ```
+
+  Default is `false`; when off, the test title preserves the v0.4 shape
+  `markup on $name ($path)` so existing CI dashboards keyed on the title
+  continue to work.
+
+  The raw-response pass catches SSR markup bugs the browser normalises
+  before the post-hydration pass sees them — for example, a `<!doctype html>`
+  (lowercase) in the SSR response is normalised to `<!DOCTYPE html>` by
+  the parser, so only the raw pass surfaces the `doctype-style` rule
+  violation.
+
+  **Auth interaction — by design.** The raw fetch does NOT forward
+  `cfg.auth` storageState cookies (they live in the browser context,
+  not Node `fetch`). For authenticated routes, the raw pass receives the
+  unauthenticated response (login page, 401, etc.) — which IS the useful
+  signal, because the post-hydration pass never sees the SSR markup
+  served before the redirect. Do not file as a bug; that's the whole
+  point of having a separate raw-response pass for authenticated routes.
+
+- **Default `snapshotPathTemplate` for `--visual`.** Closes the v0.3
+  carry-forward "visual baselines default to
+  `node_modules/preflight/dist/specs/visual.spec.js-snapshots/`". Without
+  configuration, baselines now land at
+  `{your-project-root}/__preflight_screenshots__/{arg}{ext}` — outside
+  `node_modules/`, survives `npm install`, ready to check in.
+
+  A consumer-supplied `playwrightOverrides.snapshotPathTemplate` still
+  wins (the spread mechanic overrides the default cleanly). Use an
+  absolute path or a `{testDir}`-prefixed template if you set your own
+  override — bare relative paths resolve against Playwright's
+  `testDir`, which for preflight is its bundled specs dir inside
+  `node_modules/`.
+
+- **lychee `.cmd`-shim fallback on Windows.** Scoop/npm-installed lychee
+  on Windows registers as `lychee.cmd`. v0.4 spawned `lychee` directly
+  without `shell: true`, which doesn't resolve PATHEXT — Scoop-only
+  installs got "command not found" even though lychee was on PATH. v0.5
+  retries the `--links` spawn through cmd.exe on Windows when the bare
+  `lychee` ENOENTs, which lets PATHEXT resolve to `.cmd`. The `.exe`
+  primary path (cargo / brew / manual installs) is unchanged and does
+  not go through the shell.
+
+  Caveat: Node emits a DEP0190 deprecation warning on the .cmd-retry
+  path ("arguments are not escaped, only concatenated"). The args list
+  is config-derived (`baseURL` + `route.path`) and is not sanitised
+  against cmd-metacharacters (`&`, `|`, `^`, etc.). The threat model is
+  "consumer attacks their own machine via their own config" — acceptable
+  for the .cmd-shim retry, but if you're paranoid, install lychee via
+  `cargo install lychee` or place a manual `lychee.exe` on PATH to keep
+  the spawn off the shell entirely.
+
 ### v0.4 additions
 
 - **Network throttling via Chromium CDP (`networkPreset`).** v0.4 wires
@@ -411,11 +473,11 @@ These are the rough edges to know about before you wire preflight into CI.
 
 ---
 
-## What's coming in v0.5+
+## What's coming in v0.6+
 
 - macOS VoiceOver (Guidepup exposes `voiceOverTest` mirroring `nvdaTest`; preflight has not wired the path yet — needs a Mac dev box in the validation loop)
-- SSR raw-response html-validate pass (currently runs against post-hydration DOM only)
-- Default `snapshotPathTemplate` for `--visual` so baselines land outside `node_modules/`
+- Cross-worker dedupe of the per-worker `networkPreset` warn-once message (currently fires up to ~10x per run on non-Chromium engines)
+- NVDA `spokenPhraseLog()` empty-string fix once a host with visible NVDA is available for validation
 
 ---
 
