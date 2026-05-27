@@ -7,10 +7,10 @@ delete prior chunk rows — append to "Chunks complete".
 
 ## Current state
 
-- Version shipped: v0.5.0
+- Version shipped: v0.6.0
 - Tag pushed: yes
 - Branch: main
-- HEAD SHA at last close: see `git rev-parse v0.5.0^{commit}` (Chunk 5 adopts the tag-pointer convention — no SHA embedded in this file, no amend needed. Chunk 4's row recorded the pre-amend close-commit SHA `745d6de` while the tag points at `2e9cbd1`; the new convention avoids the off-by-one entirely.)
+- HEAD SHA at last close: see `git rev-parse v0.6.0^{commit}` (Chunk 5 introduced and Chunk 6 continues the tag-pointer convention — no SHA embedded in this file, no amend needed.)
 - Node version exercised: 24.14.0 (Node 22 LTS is the pinned floor; operator dev box on 24)
 - npm version exercised: 11.9.0
 - Playwright version exercised: 1.60.0 (peerDep `>=1.50.0`, open lower bound)
@@ -18,14 +18,41 @@ delete prior chunk rows — append to "Chunks complete".
 - Guidepup versions exercised: @guidepup/guidepup 0.24.1, @guidepup/playwright 0.15.0, @guidepup/setup 0.21.0
 - html-validate version exercised: 11.4.0
 - lychee version exercised: 0.24.2 (binary install from GitHub release; `.cmd` shim path exercised via a synthetic `lychee.cmd` shim on PowerShell — happy path and retry both validated)
-- http-server version exercised (visual fixture only): 14.1.1 (scratch dir only — NOT a preflight dep)
-- Guidepup setup script: re-run during Chunk 5 validation? NO — already registered from Chunk 2.
+- http-server version exercised (visual fixture + CI smoke fixture): 14.1.1
+- Guidepup setup script: re-run during Chunk 6 validation? NO — already registered from Chunk 2.
+- Stable resting state: as of v0.6.0, preflight is feature-complete for the operator's roadmap. CI gates regressions on the published tarball; no further chunks planned. The remaining items in "Future work" require either a Mac dev box (VoiceOver) or a host with audibly-running NVDA (spokenPhraseLog), neither of which is in the operator's foreseeable validation loop.
 
 ## Chunks remaining
 
-| Chunk | Version target | Scope | Risk notes |
-| ----- | -------------- | ----- | ---------- |
-| 6 | v0.6.0 (or later) | macOS VoiceOver (template-port of nvda.spec.ts — Guidepup exposes `voiceOverTest`); cross-worker dedupe of the per-worker `networkPreset` warn-once message (would require IPC); NVDA `spokenPhraseLog()` empty-string fix once a host with visible NVDA is available for validation | macOS support still needs a Mac dev box; operator does not currently have one wired into the validation loop. Cross-worker dedupe of networkPreset noise is low-priority polish — acceptable noise floor at ~10x emissions per non-Chromium run. |
+None planned. preflight is at a stable resting state as of v0.6.0.
+Items previously queued for v0.6+ have moved to "Future work
+(unbacked by hardware)" below — they remain documented for anyone
+who picks up the repo with the missing hardware, but are not on a
+staged-chunk cadence and do not gate any future release.
+
+## Future work (unbacked by hardware)
+
+- **macOS VoiceOver.** Guidepup exposes `voiceOverTest` mirroring
+  `nvdaTest`. The v0.2 `nvda.spec.ts` shape is the template — lazy
+  import behind a `process.platform === 'darwin'` gate, project-level
+  testIgnore via the same `RELEASE_ONLY_SPECS` mechanism, soft
+  assertion on `spokenPhraseLog()` content. Requires a macOS dev box
+  with VoiceOver visible; the operator does not have one and has no
+  plans to add one.
+- **Cross-worker dedupe of the `networkPreset` warn-once message.**
+  Module-level `Set<string>` in `src/specs/_helpers.ts` dedupes
+  within a single Playwright worker, but workers don't share state —
+  so a non-chromium config emits up to ~10 warnings under `--full`.
+  Cross-worker dedupe would require IPC (filesystem-based lock, or
+  Playwright's `globalSetup` writing a sentinel). Acceptable noise
+  floor in practice; low-priority polish.
+- **NVDA `spokenPhraseLog()` empty-string on the operator's dev
+  box.** Guidepup wires NVDA → captures spoken phrases, but the
+  returned log is empty on this dev box. Could be a config or
+  audio-subsystem issue; needs a host with audibly-running NVDA to
+  diagnose. Currently swallowed via soft assertion (the spec passes
+  even when the log is empty), so the regression surface is "we
+  can't catch announcement-content bugs", not "the spec fails".
 
 ## Chunks complete
 
@@ -36,13 +63,16 @@ delete prior chunk rows — append to "Chunks complete".
 | 3 | v0.3.0 | --visual cadence (Playwright `toHaveScreenshot()` on one project, gated flag-driven via top-level testMatch flip; cfg.visualProject + cfg.visualThreshold); cfg.auth lifecycle (setup module producing storageState, cache + expiry, --no-auth bypass, `preflight teardown` subcommand); per-route lighthouseThresholds override; webServer.cwd default-bug fix (was defaulting to preflight/dist, now resolves to consumer project root in the runner); R5 remediation (lighthouse storageState honour, --visual playwrightOverrides clobber-proofing, --visual flag-conflict rejection, route-name uniqueness, atomic storageState write, named-export error UX, JSON.stringify wrap, parseArgs engine/reporter validation) | v0.2.0..v0.3.0 | b1f3336 (tag points AT this commit) | v0.3.0 |
 | 4 | v0.4.0 | `cfg.networkPreset` (Chromium-CDP throttling via Playwright newCDPSession, wired into smoke.spec + a11y.spec only; firefox/webkit emit per-worker one-time stderr warning; lighthouse.spec explicitly NOT wired since Lighthouse runs its own simulated throttling); `cfg.releaseOnlyPatterns` (Shape B per design decision — appended to BUILT_IN_RELEASE_ONLY_SPECS in playwright.config.ts for project-level testIgnore on non-RELEASE_SUPPORTED_PROJECT projects; testIgnore matches against files discoverable under preflight's testDir, separate-root consumer specs gate themselves via test.skip() keyed on `process.env.PREFLIGHT_RELEASE`); lychee min-version pre-flight (`spawn('lychee', ['--version'])` round-trip, captures stdout AND stderr, parses `lychee X.Y.Z`, warns to stderr if < 0.13.0, parse-failure → softer warning, never blocks); R5 remediation (lychee version-check moved above verbose launch log, stderr capture, README playwrightOverrides example rewritten to test.skip() pattern since the projects/testIgnore override paths both have unintended effects, one-line comment confirming unconditional testIgnore extension) | v0.3.0..v0.4.0 | 745d6de (close commit; tag-commit SHA via `git rev-parse v0.4.0` differs by one amend step — see Current state for why) | v0.4.0 |
 | 5 | v0.5.0 | `cfg.htmlValidateRaw` flag (default false): when true, html-validate.spec emits TWO independent test cases per route — post-hydration via `page.content()` and a raw-response pass via Node `fetch(baseURL + route.path)`. Raw fetch deliberately does NOT forward `cfg.auth` storageState cookies (surfacing-by-design: authenticated routes yield their unauthenticated SSR markup, which is the signal). Title-shape side effect: post-hydration title gains `(post-hydration)` suffix only when raw is on, so v0.4 `markup on $name ($path)` shape preserved when flag is off. Default `snapshotPathTemplate` set on top-level config field BEFORE the `playwrightOverrides` spread (later-key-wins lets consumer override of the same top-level key replace it cleanly); default value `path.join(process.cwd(), '__preflight_screenshots__', '{arg}{ext}')` lands baselines inside the consumer's project root (process.cwd() resolves to consumerCwd because runner spawns Playwright with cwd:consumerCwd). lychee `.cmd`-shim fallback on Windows: hybrid of Chunk 5 prompt shapes (a) + (b) — primary `spawn('lychee', args)` stays shell-free (clean .exe path), Windows ENOENT retry uses `shell: true` so cmd.exe resolves PATHEXT to `.cmd`. Modern Node (post CVE-2024-27980) refuses to spawn .cmd files without shell, so pure shape-(a) was infeasible; shell:true trips DEP0190 but preflight prints a single breadcrumb annotating the fallback before the warning fires. Same retry pattern applied to `checkLycheeVersion` probe. R5 remediation (raw-response fetch failure throws Error instead of misleading expect().toBe assertion shape; DEP0190 breadcrumb deduped across version-probe and main-spawn retry sites; tightened snapshotPathTemplate comment on override-semantics edge cases; documented title-shape side effect of htmlValidateRaw in JSDoc) | v0.4.0..v0.5.0 | see `git rev-parse v0.5.0^{commit}` (tag-pointer convention; no embedded SHA, no amend dance) | v0.5.0 |
+| 6 | v0.6.0 | Repo-internal release-quality work (no consumer-facing API change). New `.github/workflows/ci.yml` gates `main` + PRs: TypeScript builds, tarball packs, installs into a fresh scratch dir with `type: module` (load-bearing — preflight is ESM-only and `npm init -y` defaults to commonjs, which would fail to resolve the `from 'preflight'` import via tsx with `No "exports" main defined`), Chromium installs (cached per OS + tarball name), `npx preflight --smoke --ci` runs against the new `ci/fixture/index.html`. Matrix: ubuntu-latest + windows-latest for smoke; macos-latest runs build-only (compile-clean signal; no smoke without a Mac dev box). No --release / --links / --visual in CI (NVDA / Lighthouse / lychee / baselines all need bespoke setup that isn't worth the per-push budget). VoiceOver / cross-worker networkPreset dedupe / NVDA spokenPhraseLog moved from "deferred chunks" to "future work (unbacked by hardware)"; preflight reaches stable resting state. | v0.5.0..v0.6.0 | see `git rev-parse v0.6.0^{commit}` (tag-pointer convention) | v0.6.0 |
 
 ## Operator-decide carry-forwards
 
-- None at end of Chunk 5. (Guidepup setup still registered from Chunk 2.)
-- macOS VoiceOver remains deferred — operator answered "No" at Chunk 5
-  start (still no Mac dev box in the validation loop). Re-ask at Chunk 6
-  start.
+- None at end of Chunk 6. preflight reaches stable resting state.
+- macOS VoiceOver: PERMANENTLY DEFERRED. Operator does not have a Mac
+  dev box in the validation loop and has no plans to add one in the
+  foreseeable future. Moved out of `Chunks remaining` into the
+  "Future work (unbacked by hardware)" block; do NOT re-ask this
+  question in future threads unless the operator opens one to revisit.
 
 ## Known issues / deferred fixes
 
@@ -223,24 +253,47 @@ New in Chunk 5:
   templates over the top-level one per assertion). Comment in
   `playwright.config.ts` spells out both cases.
 
-## Notes for the next chunk (v0.6+)
+## Notes for a future maintainer
 
-When picking up Chunk 6:
+preflight is at a stable resting state after v0.6.0. No chunks are
+queued. If a future maintainer (or the original operator with new
+hardware) wants to extend the package, the constraints below apply
+the same way they did across Chunks 1-6:
 
-1. Read this file's `Current state` to confirm v0.5.0 actually shipped
-   (tag pushed; resolve HEAD via `git rev-parse v0.5.0^{commit}` —
-   Chunk 5 adopts the tag-pointer convention, no SHA embedded here).
-2. macOS VoiceOver path: Guidepup exposes `voiceOverTest` mirroring
-   `nvdaTest`; the v0.2 `nvda.spec.ts` shape (lazy import behind
-   platform gate + project-level testIgnore + soft assertion on
-   phrase content) is the template. The operator still does not have
-   a Mac dev box; this work continues to require one wired into the
-   validation loop.
-3. Cross-worker dedupe of the per-worker `networkPreset` warn-once
-   message: would require IPC. Acceptable noise floor at ~10x
-   emissions per non-Chromium run; low-priority polish.
-4. NVDA `spokenPhraseLog()` empty-string fix: needs a host with
-   visible NVDA in the validation loop. Soft-assertion shape
-   currently swallows the empty output; consider tightening once a
-   real signal can be observed.
-5. Run the same two purity grep tests at chunk close.
+1. **Purity discipline.** preflight is a standalone public OSS
+   package. Every commit, every tracked file, every commit author/
+   email must be generic. Two grep tests gate this — one against
+   `git ls-files` (tracked-file contents), one against `git log`
+   author + email + body (full history). The blocklist itself is
+   intentionally NOT embedded here (it would self-trigger); the
+   canonical list lives in the original chunk-prompt template the
+   operator authored. The pattern: no internal project names, no
+   personal handles, no personal emails, no operational paths.
+   Both greps must return empty at chunk close.
+
+2. **Git identity.** `preflight contributors <noreply@example.com>`
+   is set in `.git/config`. Verify before any future commit.
+
+3. **README pinning convention.** The README uses
+   `<your-org>/preflight#vX.Y.Z` as a placeholder; the actual repo
+   URL lives only in `.git/config` (untracked). Do not write the
+   real URL into any tracked file.
+
+4. **Items waiting on hardware** (see `Future work` block above):
+   - macOS VoiceOver: Mac dev box with VoiceOver visible.
+   - NVDA `spokenPhraseLog()` empty-string: host with audibly-running
+     NVDA + Guidepup hook visibility.
+   - Cross-worker `networkPreset` dedupe: no hardware blocker; pure
+     polish via Playwright `globalSetup` + a sentinel file. Skipped
+     for lack of motivating signal, not for lack of feasibility.
+
+5. **CI gates main.** v0.6 added `.github/workflows/ci.yml`. Any
+   change touching `src/`, `bin/`, or `package.json` will be smoke-
+   tested on both Linux and Windows runners before merge.
+
+6. **SHA-recording convention.** Chunks 5 and 6 use the tag-pointer
+   convention — `Current state` HEAD SHA reads `see git rev-parse
+   v$VERSION^{commit}`. Earlier chunks (1-4) embedded SHAs and one
+   chunk (4) had to use `git commit --amend` to backfill, producing
+   a known off-by-one. The tag-pointer convention is the maintained
+   path forward.
