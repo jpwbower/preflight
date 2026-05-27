@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loadPreflightConfig, isCi } from './_helpers.js';
+import { applyNetworkPreset, loadPreflightConfig, isCi } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
 
@@ -41,6 +41,8 @@ test.describe('smoke', () => {
         }
         failedRequests.push(`${req.method()} ${url} :: ${failure?.errorText ?? 'unknown'}`);
       });
+
+      await applyNetworkPreset(page, cfg);
 
       const response = await page.goto(route.path, { waitUntil: 'domcontentloaded' });
       expect(response, `no response object for ${route.path}`).not.toBeNull();

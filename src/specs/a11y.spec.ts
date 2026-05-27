@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { AxeBuilder } from '@axe-core/playwright';
 import type { AxeResults, Result, NodeResult } from 'axe-core';
-import { loadPreflightConfig } from './_helpers.js';
+import { applyNetworkPreset, loadPreflightConfig } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
 
@@ -19,6 +19,7 @@ const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
 test.describe('a11y (axe-core, WCAG 2.0/2.1/2.2 A+AA)', () => {
   for (const route of cfg.routes) {
     test(`axe ${route.name} (${route.path})`, async ({ page }) => {
+      await applyNetworkPreset(page, cfg);
       await page.goto(route.path, { waitUntil: 'domcontentloaded' });
       if (cfg.readyMarker) {
         await page.waitForSelector(cfg.readyMarker, { state: 'attached', timeout: 30_000 });
