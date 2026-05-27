@@ -213,6 +213,26 @@ const config: PlaywrightTestConfig = defineConfig({
 
   outputDir: process.env.PREFLIGHT_TEST_RESULTS_DIR,
 
+  // Default snapshot baseline location. Playwright's out-of-the-box
+  // default is `{testDir}/{testFilePath}-snapshots/{arg}{ext}`, which
+  // for preflight resolves under `node_modules/preflight/dist/specs/`
+  // — destroyed on every `npm install`. We default to a directory
+  // inside the consumer's project so baselines survive reinstalls and
+  // can be checked in.
+  //
+  // process.cwd() === consumerCwd here: the runner spawns Playwright
+  // with `cwd: consumerCwd` (see src/cli/runner.ts runPlaywright). A
+  // consumer who wants a different location sets
+  // `playwrightOverrides.snapshotPathTemplate` in their preflight
+  // config — the spread below overrides this default cleanly because
+  // snapshotPathTemplate is a top-level scalar field, not a nested
+  // object, so later-key-wins semantics apply directly.
+  snapshotPathTemplate: path.join(
+    process.cwd(),
+    '__preflight_screenshots__',
+    '{arg}{ext}'
+  ),
+
   projects: buildProjects(),
 
   webServer:
