@@ -7,25 +7,25 @@ delete prior chunk rows — append to "Chunks complete".
 
 ## Current state
 
-- Version shipped: v0.4.0
+- Version shipped: v0.5.0
 - Tag pushed: yes
 - Branch: main
-- HEAD SHA at last close: 745d6de (close commit; amended in-place to backfill this SHA into BUILD_TRACKER, then tagged. The tag-commit SHA differs by one amend step from the recorded value — `git tag -a` does NOT create a separate commit, but `git commit --amend` on a self-referencing payload necessarily does. The recorded value is the close-commit-as-authored SHA; run `git rev-parse v0.4.0` for the canonical post-amend SHA. The Chunk 1/2/3 rows below previously used "(+ tag commit)" parentheticals that suggested a separate tag commit — those were misleading and the convention is corrected from this row forward.)
+- HEAD SHA at last close: see `git rev-parse v0.5.0^{commit}` (Chunk 5 adopts the tag-pointer convention — no SHA embedded in this file, no amend needed. Chunk 4's row recorded the pre-amend close-commit SHA `745d6de` while the tag points at `2e9cbd1`; the new convention avoids the off-by-one entirely.)
 - Node version exercised: 24.14.0 (Node 22 LTS is the pinned floor; operator dev box on 24)
 - npm version exercised: 11.9.0
 - Playwright version exercised: 1.60.0 (peerDep `>=1.50.0`, open lower bound)
 - Lighthouse version exercised: 13.3.0 (via playwright-lighthouse 4.0.0)
 - Guidepup versions exercised: @guidepup/guidepup 0.24.1, @guidepup/playwright 0.15.0, @guidepup/setup 0.21.0
 - html-validate version exercised: 11.4.0
-- lychee version exercised: 0.24.2 (binary install from GitHub release)
+- lychee version exercised: 0.24.2 (binary install from GitHub release; `.cmd` shim path exercised via a synthetic `lychee.cmd` shim on PowerShell — happy path and retry both validated)
 - http-server version exercised (visual fixture only): 14.1.1 (scratch dir only — NOT a preflight dep)
-- Guidepup setup script: re-run during Chunk 4 validation? NO — already registered from Chunk 2.
+- Guidepup setup script: re-run during Chunk 5 validation? NO — already registered from Chunk 2.
 
 ## Chunks remaining
 
 | Chunk | Version target | Scope | Risk notes |
 | ----- | -------------- | ----- | ---------- |
-| 5 | v0.5.0 (or later) | macOS VoiceOver (template-port of nvda.spec.ts — Guidepup exposes `voiceOverTest`); SSR raw-response html-validate pass behind a `cfg.htmlValidateRaw` flag; default `snapshotPathTemplate` for --visual (currently baselines default to `node_modules/preflight/dist/specs/visual.spec.js-snapshots/` which is destroyed on every npm install) | macOS support needs a Mac dev box; operator does not currently have one wired into the validation loop. Default snapshotPathTemplate is opinionated; only ship if consumer override still wins after re-testing the v0.3 R5 finding #2 reasoning. |
+| 6 | v0.6.0 (or later) | macOS VoiceOver (template-port of nvda.spec.ts — Guidepup exposes `voiceOverTest`); cross-worker dedupe of the per-worker `networkPreset` warn-once message (would require IPC); NVDA `spokenPhraseLog()` empty-string fix once a host with visible NVDA is available for validation | macOS support still needs a Mac dev box; operator does not currently have one wired into the validation loop. Cross-worker dedupe of networkPreset noise is low-priority polish — acceptable noise floor at ~10x emissions per non-Chromium run. |
 
 ## Chunks complete
 
@@ -35,12 +35,13 @@ delete prior chunk rows — append to "Chunks complete".
 | 2 | v0.2.0 | --release cadence (nvda, lighthouse, html-validate); --links cadence (lychee shellout); preflight init --ci (GHA workflow template); lighthouseThresholds config field; unified summary.json schema across cadences with `cadence` discriminator; project-level testIgnore for release-only specs + workers:1 on release for NVDA foreground-app safety; R5 remediation (version bump, lychee streaming, NVDA lazy import, GHA template lychee-action@v2, defensive guidepup-setup check) | v0.1.0..v0.2.0 | ea0d438 (+ tag commit) | v0.2.0 |
 | 3 | v0.3.0 | --visual cadence (Playwright `toHaveScreenshot()` on one project, gated flag-driven via top-level testMatch flip; cfg.visualProject + cfg.visualThreshold); cfg.auth lifecycle (setup module producing storageState, cache + expiry, --no-auth bypass, `preflight teardown` subcommand); per-route lighthouseThresholds override; webServer.cwd default-bug fix (was defaulting to preflight/dist, now resolves to consumer project root in the runner); R5 remediation (lighthouse storageState honour, --visual playwrightOverrides clobber-proofing, --visual flag-conflict rejection, route-name uniqueness, atomic storageState write, named-export error UX, JSON.stringify wrap, parseArgs engine/reporter validation) | v0.2.0..v0.3.0 | b1f3336 (tag points AT this commit) | v0.3.0 |
 | 4 | v0.4.0 | `cfg.networkPreset` (Chromium-CDP throttling via Playwright newCDPSession, wired into smoke.spec + a11y.spec only; firefox/webkit emit per-worker one-time stderr warning; lighthouse.spec explicitly NOT wired since Lighthouse runs its own simulated throttling); `cfg.releaseOnlyPatterns` (Shape B per design decision — appended to BUILT_IN_RELEASE_ONLY_SPECS in playwright.config.ts for project-level testIgnore on non-RELEASE_SUPPORTED_PROJECT projects; testIgnore matches against files discoverable under preflight's testDir, separate-root consumer specs gate themselves via test.skip() keyed on `process.env.PREFLIGHT_RELEASE`); lychee min-version pre-flight (`spawn('lychee', ['--version'])` round-trip, captures stdout AND stderr, parses `lychee X.Y.Z`, warns to stderr if < 0.13.0, parse-failure → softer warning, never blocks); R5 remediation (lychee version-check moved above verbose launch log, stderr capture, README playwrightOverrides example rewritten to test.skip() pattern since the projects/testIgnore override paths both have unintended effects, one-line comment confirming unconditional testIgnore extension) | v0.3.0..v0.4.0 | 745d6de (close commit; tag-commit SHA via `git rev-parse v0.4.0` differs by one amend step — see Current state for why) | v0.4.0 |
+| 5 | v0.5.0 | `cfg.htmlValidateRaw` flag (default false): when true, html-validate.spec emits TWO independent test cases per route — post-hydration via `page.content()` and a raw-response pass via Node `fetch(baseURL + route.path)`. Raw fetch deliberately does NOT forward `cfg.auth` storageState cookies (surfacing-by-design: authenticated routes yield their unauthenticated SSR markup, which is the signal). Title-shape side effect: post-hydration title gains `(post-hydration)` suffix only when raw is on, so v0.4 `markup on $name ($path)` shape preserved when flag is off. Default `snapshotPathTemplate` set on top-level config field BEFORE the `playwrightOverrides` spread (later-key-wins lets consumer override of the same top-level key replace it cleanly); default value `path.join(process.cwd(), '__preflight_screenshots__', '{arg}{ext}')` lands baselines inside the consumer's project root (process.cwd() resolves to consumerCwd because runner spawns Playwright with cwd:consumerCwd). lychee `.cmd`-shim fallback on Windows: hybrid of Chunk 5 prompt shapes (a) + (b) — primary `spawn('lychee', args)` stays shell-free (clean .exe path), Windows ENOENT retry uses `shell: true` so cmd.exe resolves PATHEXT to `.cmd`. Modern Node (post CVE-2024-27980) refuses to spawn .cmd files without shell, so pure shape-(a) was infeasible; shell:true trips DEP0190 but preflight prints a single breadcrumb annotating the fallback before the warning fires. Same retry pattern applied to `checkLycheeVersion` probe. R5 remediation (raw-response fetch failure throws Error instead of misleading expect().toBe assertion shape; DEP0190 breadcrumb deduped across version-probe and main-spawn retry sites; tightened snapshotPathTemplate comment on override-semantics edge cases; documented title-shape side effect of htmlValidateRaw in JSDoc) | v0.4.0..v0.5.0 | see `git rev-parse v0.5.0^{commit}` (tag-pointer convention; no embedded SHA, no amend dance) | v0.5.0 |
 
 ## Operator-decide carry-forwards
 
-- None at end of Chunk 4. (Guidepup setup still registered from Chunk 2.)
-- macOS VoiceOver remains deferred — operator answered "No" at Chunk 4
-  start (no Mac dev box in the validation loop). Re-ask at Chunk 5
+- None at end of Chunk 5. (Guidepup setup still registered from Chunk 2.)
+- macOS VoiceOver remains deferred — operator answered "No" at Chunk 5
+  start (still no Mac dev box in the validation loop). Re-ask at Chunk 6
   start.
 
 ## Known issues / deferred fixes
@@ -91,7 +92,8 @@ Carried forward from Chunk 2 (still applicable):
   `lychee --version` round-trip warns to stderr if installed version is
   older than 0.13.0 (parse failure → softer warning; never blocks).
 - **html-validate runs against `page.content()` (post-hydration DOM)
-  only.** Raw-response pass deferred to v0.5.
+  only.** RESOLVED in v0.5 via `cfg.htmlValidateRaw` — opt-in flag emits
+  a second raw-response test case per route, fetched via Node `fetch`.
 - **Reviewer-flagged free-port TOCTOU race in lighthouse.spec.ts.**
   Tiny window, release runs serial under workers:1; fix-pin via
   `PREFLIGHT_LIGHTHOUSE_PORT`. Unchanged in v0.3.
@@ -100,14 +102,14 @@ New in Chunk 3:
 
 - **Visual baselines default to
   `node_modules/preflight/dist/specs/visual.spec.js-snapshots/`.**
-  That's Playwright's sibling-of-spec default and the spec ships
-  inside the consumer's node_modules — so the baseline is destroyed
-  on every `npm install`. Consumers MUST set
-  `playwrightOverrides.snapshotPathTemplate` to a path inside their
-  own repo. README has a worked example encoding `os.release()` for
-  Windows builds. If we shipped a default `snapshotPathTemplate`
-  pointing at the consumer's root we'd be picking a directory for them
-  — opinionated choice deferred until consumer feedback arrives.
+  RESOLVED in v0.5 — preflight now sets the top-level
+  `snapshotPathTemplate` config field to
+  `${consumerCwd}/__preflight_screenshots__/{arg}{ext}` before the
+  `playwrightOverrides` spread, so baselines land inside the
+  consumer's project by default. Consumer top-level
+  `playwrightOverrides.snapshotPathTemplate` still wins via later-key
+  spread semantics; sibling overrides (e.g. `expect.toHaveScreenshot.pathTemplate`)
+  leave the default in place.
 - **The `--release` Lighthouse spec honours `cfg.auth.storageState`
   but the underlying chromium.launch() call still uses a fresh
   user-data-dir.** Caches / IndexedDB / other persistent state from
@@ -171,27 +173,74 @@ New in Chunk 4:
   ENOENT silently swallowed (main spawn handles missing-binary), parse
   failure → softer "could not parse" warning, too-old version → loud
   warning. NEVER blocks the run.
+- **lychee `.cmd` shim not found on Windows.** RESOLVED in v0.5 —
+  hybrid retry: primary `spawn('lychee', args)` stays shell-free for
+  the .exe path; Windows ENOENT retry uses `shell: true` so cmd.exe
+  resolves PATHEXT to `.cmd`. Modern Node (post CVE-2024-27980)
+  refuses to spawn .cmd files without shell, so pure shape-(a) was
+  infeasible. Same retry applied to `checkLycheeVersion` probe.
 
-## Notes for the next chunk (v0.5+)
+New in Chunk 5:
 
-When picking up Chunk 5:
+- **Lychee `.cmd`-shim retry trips Node's DEP0190 deprecation
+  warning.** `shell: true` is required to launch `.cmd` files on
+  modern Node, but Node emits "Passing args to a child process with
+  shell option true can lead to security vulnerabilities, as the
+  arguments are not escaped, only concatenated" on stderr each time.
+  preflight prints a single `[preflight] lychee: ... DEP0190 is
+  expected ...` breadcrumb to stderr at most once per run, before the
+  first shell:true invocation, so consumers don't read the
+  deprecation as a preflight bug. The .exe primary path (default for
+  cargo / brew installs) does not trip the warning. Documented in
+  README v0.5 additions.
+- **Lychee `.cmd`-shim retry has a non-zero shell-injection surface.**
+  `shell: true` passes args concatenated, not escaped. preflight's
+  args are `--config <path>`, flag literals, and URLs derived from
+  `baseURL + route.path`. defineConfig validates baseURL as a URL and
+  route.path to start with `/`, but neither rejects cmd-metacharacters
+  (`&`, `|`, `^`, etc.). Threat model: "consumer attacks their own
+  machine via their own config" — acceptable for the .cmd retry path
+  only. Consumers wanting zero shell surface should install lychee via
+  `cargo install lychee` (places `.exe` on PATH) so the retry never
+  fires.
+- **htmlValidateRaw raw fetch does not honour `cfg.auth.storageState`.**
+  By design (surfacing-by-design): cookies live in the browser context
+  not Node `fetch`, so the raw response for an authenticated route is
+  the unauthenticated SSR markup. That IS the signal — post-hydration
+  pass cannot see what SSR serves before the redirect to login. Do not
+  add cookie forwarding; it would defeat the value.
+- **htmlValidateRaw post-hydration test title shape changes when
+  enabled.** v0.4 title `markup on $name ($path)` becomes
+  `markup on $name ($path) (post-hydration)` (and a sibling
+  `(raw response)`) when the flag is on. CI dashboards keyed on the
+  v0.4 full title break; switch to a prefix match on the v0.4 shape.
+  Documented in the field's JSDoc.
+- **Default `snapshotPathTemplate` only wins for top-level overrides.**
+  Consumer's `playwrightOverrides.snapshotPathTemplate` (top-level
+  scalar) replaces the default via later-key-wins spread. Sibling
+  overrides under `expect.toHaveScreenshot.pathTemplate` leave the
+  default in place — both apply (Playwright merges expect-level
+  templates over the top-level one per assertion). Comment in
+  `playwright.config.ts` spells out both cases.
 
-1. Read this file's `Current state` to confirm v0.4.0 actually shipped
-   (tag pushed, HEAD SHA matches the v0.4.0 row in `Chunks complete`).
+## Notes for the next chunk (v0.6+)
+
+When picking up Chunk 6:
+
+1. Read this file's `Current state` to confirm v0.5.0 actually shipped
+   (tag pushed; resolve HEAD via `git rev-parse v0.5.0^{commit}` —
+   Chunk 5 adopts the tag-pointer convention, no SHA embedded here).
 2. macOS VoiceOver path: Guidepup exposes `voiceOverTest` mirroring
    `nvdaTest`; the v0.2 `nvda.spec.ts` shape (lazy import behind
    platform gate + project-level testIgnore + soft assertion on
-   phrase content) is the template. The operator does not currently
-   have a Mac dev box; this work needs one wired into the validation
-   loop.
-3. SSR raw-response html-validate: new `cfg.htmlValidateRaw?: boolean`
-   flag (default false). When true, html-validate.spec ALSO fetches
-   each route via Node `fetch(baseURL + route.path)` and runs
-   html-validate against the raw response body, alongside the
-   post-hydration DOM pass. Two independent test cases per route when
-   enabled.
-4. Default `snapshotPathTemplate` for `--visual`: closes the Chunk 3
-   known-issue. Only ship if consumer override still wins after
-   re-testing the v0.3 R5 finding #2 reasoning (the visual gate
-   re-applies AFTER the playwrightOverrides spread).
+   phrase content) is the template. The operator still does not have
+   a Mac dev box; this work continues to require one wired into the
+   validation loop.
+3. Cross-worker dedupe of the per-worker `networkPreset` warn-once
+   message: would require IPC. Acceptable noise floor at ~10x
+   emissions per non-Chromium run; low-priority polish.
+4. NVDA `spokenPhraseLog()` empty-string fix: needs a host with
+   visible NVDA in the validation loop. Soft-assertion shape
+   currently swallows the empty output; consider tightening once a
+   real signal can be observed.
 5. Run the same two purity grep tests at chunk close.
