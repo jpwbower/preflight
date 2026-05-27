@@ -63,6 +63,10 @@ const BUILT_IN_RELEASE_ONLY_SPECS = [
   '**/lighthouse.spec.js',
   '**/html-validate.spec.js',
 ];
+// Concat unconditional — the per-project testIgnore is applied regardless
+// of isRelease (matches how the built-in three are gated). Outside the
+// release cadence the matched specs simply don't exist under preflight's
+// testDir for non-supported projects, so the ignore is a no-op.
 const RELEASE_ONLY_SPECS = [
   ...BUILT_IN_RELEASE_ONLY_SPECS,
   ...(cfg.releaseOnlyPatterns ?? []),

@@ -219,14 +219,16 @@ These are the rough edges to know about before you wire preflight into CI.
   `releaseOnlyPatterns` only fires against specs that ARE discoverable
   there. For consumer specs in a separate root, use the
   `PREFLIGHT_RELEASE === '1'` env signal in your own
-  `playwrightOverrides`:
+  spec body. `playwrightOverrides.projects` would replace preflight's
+  whole engine × viewport matrix, and `playwrightOverrides.testIgnore`
+  gets overwritten by the load-bearing visual gate that re-applies
+  after the spread — so a behavioural `test.skip()` is the cleanest
+  consumer-side gate:
 
   ```ts
-  playwrightOverrides: {
-    projects: process.env.PREFLIGHT_RELEASE === '1'
-      ? undefined  // let release-only files load normally
-      : [{ testIgnore: ['**/my-perf.spec.ts'] }],
-  },
+  // my-perf.spec.ts (consumer's spec, anywhere in their tree)
+  import { test } from '@playwright/test';
+  test.skip(process.env.PREFLIGHT_RELEASE !== '1', 'release-only');
   ```
 
 - **lychee version skew warning.** `--links` now spawns

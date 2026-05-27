@@ -57,11 +57,13 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   args.push('--timeout', '20'); // seconds per URL
   args.push(...seeds);
 
+  // Version diagnostic BEFORE the verbose launch log so any compatibility
+  // warning precedes the visible launch line — reviewer-flagged R5.
+  await checkLycheeVersion();
+
   if (verbose) {
     process.stderr.write(`[preflight] lychee: launching: lychee ${args.join(' ')}\n`);
   }
-
-  await checkLycheeVersion();
 
   // Pipe stdout/stderr straight to disk so a large-site sweep (lychee
   // can emit tens of MB on a thousand-link crawl) doesn't accumulate
@@ -172,7 +174,9 @@ const LYCHEE_MIN_MINOR = 13;
  * probe to avoid double-reporting.
  */
 async function checkLycheeVersion(): Promise<void> {
-  let stdout = '';
+  // Capture BOTH streams — some pre-0.10 lychee builds wrote --version
+  // output to stderr. Reviewer-flagged R5.
+  let captured = '';
   try {
     await new Promise<void>((resolve) => {
       let child;
@@ -183,7 +187,10 @@ async function checkLycheeVersion(): Promise<void> {
         return;
       }
       child.stdout?.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString('utf8');
+        captured += chunk.toString('utf8');
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        captured += chunk.toString('utf8');
       });
       child.on('error', () => resolve());
       child.on('exit', () => resolve());
@@ -192,11 +199,11 @@ async function checkLycheeVersion(): Promise<void> {
     return;
   }
 
-  if (!stdout) return;
-  const m = /^lychee\s+(\d+)\.(\d+)\.(\d+)/m.exec(stdout);
+  if (!captured) return;
+  const m = /^lychee\s+(\d+)\.(\d+)\.(\d+)/m.exec(captured);
   if (!m) {
     process.stderr.write(
-      `[preflight] lychee: could not parse version from "${stdout.trim().split(/\r?\n/)[0] ?? ''}"; proceeding without compatibility check.\n`
+      `[preflight] lychee: could not parse version from "${captured.trim().split(/\r?\n/)[0] ?? ''}"; proceeding without compatibility check.\n`
     );
     return;
   }
