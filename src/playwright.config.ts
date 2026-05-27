@@ -166,14 +166,15 @@ function buildProjects(): PlaywrightTestConfig['projects'] {
   return projects;
 }
 
+const VISUAL_TEST_MATCH = isVisual ? [VISUAL_SPEC] : ['**/*.spec.js'];
+const VISUAL_TEST_IGNORE = isVisual ? undefined : [VISUAL_SPEC];
+
 const config: PlaywrightTestConfig = defineConfig({
   testDir: path.join(__dirname, 'specs'),
   // We compile .ts → .js, so the published surface matches .spec.js.
-  // --visual flips the include to ONLY visual.spec.js so baselines are
-  // captured in isolation; otherwise visual.spec.js is excluded so
-  // normal cadences don't accidentally generate or compare baselines.
-  testMatch: isVisual ? [VISUAL_SPEC] : ['**/*.spec.js'],
-  testIgnore: isVisual ? undefined : [VISUAL_SPEC],
+  // NOTE: testMatch/testIgnore are set AFTER `playwrightOverrides`
+  // below — the visual-cadence gate is load-bearing and must win
+  // against any consumer override.
 
   fullyParallel: true,
   forbidOnly: isCi,
@@ -208,11 +209,12 @@ const config: PlaywrightTestConfig = defineConfig({
           command: cfg.webServer.command,
           url: cfg.webServer.url,
           port: cfg.webServer.port,
-          // Default to the consumer's project root, NOT preflight/dist (which
-          // is what Playwright would otherwise infer from the config file's
-          // location). The runner spawns the Playwright child with
-          // cwd=consumerCwd, so process.cwd() here is the consumer's root.
-          cwd: cfg.webServer.cwd ?? process.cwd(),
+          // cwd is pre-resolved to an absolute path by the runner — see
+          // resolvedWebServer in src/cli/runner.ts. Defaulting here would
+          // break if anyone ever invoked this config file outside of
+          // bin/preflight.mjs, but loadConfigFromEnv() above already
+          // throws in that case.
+          cwd: cfg.webServer.cwd,
           timeout: cfg.webServer.timeout ?? 120_000,
           env: cfg.webServer.env,
           reuseExistingServer: !isCi && process.env.PREFLIGHT_NO_REUSE !== '1',
@@ -221,6 +223,16 @@ const config: PlaywrightTestConfig = defineConfig({
         },
 
   ...(cfg.playwrightOverrides ?? {}),
+
+  // The visual-cadence testMatch/testIgnore is load-bearing — a consumer
+  // who sets `playwrightOverrides.testMatch` (e.g. to register an extra
+  // custom spec) would otherwise silently break --visual gating. Re-apply
+  // AFTER the spread so the gate always wins. Consumers who genuinely
+  // want a different visual-cadence shape can set `cfg.visualProject`
+  // (changes which project the spec runs on) — they don't need to
+  // override testMatch.
+  testMatch: VISUAL_TEST_MATCH,
+  testIgnore: VISUAL_TEST_IGNORE,
 });
 
 export default config;

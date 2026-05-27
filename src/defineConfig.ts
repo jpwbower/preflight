@@ -86,6 +86,7 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
   if (!Array.isArray(cfg.routes) || cfg.routes.length === 0) {
     throw new PreflightConfigError('routes must be a non-empty array.');
   }
+  const seenRouteNames = new Set<string>();
   const routes = cfg.routes.map((r, i) => {
     if (r === null || typeof r !== 'object') {
       throw new PreflightConfigError(`routes[${i}] must be an object with { name, path }.`);
@@ -101,6 +102,13 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     if (typeof rr.name !== 'string' || rr.name.length === 0) {
       throw new PreflightConfigError(`routes[${i}].name must be a non-empty string.`);
     }
+    if (seenRouteNames.has(rr.name)) {
+      throw new PreflightConfigError(
+        `routes[${i}].name "${rr.name}" is already used by another route. ` +
+          'Route names must be unique — they are used for test titles, report grouping, and visual snapshot filenames.'
+      );
+    }
+    seenRouteNames.add(rr.name);
     if (typeof rr.path !== 'string' || !rr.path.startsWith('/')) {
       throw new PreflightConfigError(`routes[${i}].path must start with "/".`);
     }

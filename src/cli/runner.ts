@@ -96,8 +96,26 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   // Merge consumer consoleIgnore with built-in defaults (concat, not replace).
   const consoleIgnoreCombined = [...DEFAULT_CONSOLE_IGNORE, ...cfg.consoleIgnore];
 
+  // Pre-resolve webServer.cwd so playwright.config.ts never depends on
+  // process.cwd() semantics — the dist directory of preflight is the
+  // wrong cwd for any webServer.command with a relative path, and the
+  // bug only surfaces with consumer-managed servers (v0.1/v0.2 hid it
+  // by using webServer:false). Resolve once, in the parent runner.
+  const resolvedWebServer =
+    cfg.webServer === false
+      ? cfg.webServer
+      : {
+          ...cfg.webServer,
+          cwd: cfg.webServer.cwd
+            ? path.isAbsolute(cfg.webServer.cwd)
+              ? cfg.webServer.cwd
+              : path.join(consumerCwd, cfg.webServer.cwd)
+            : consumerCwd,
+        };
+
   const serialised = {
     ...cfg,
+    webServer: resolvedWebServer,
     consoleIgnore: consoleIgnoreCombined.map((r) => ({ source: r.source, flags: r.flags })),
     storageStatePath,
   };
@@ -424,7 +442,24 @@ async function ensureAuthStorageState(
     );
   }
   await mkdir(path.dirname(storageStatePath), { recursive: true });
-  await writeFile(storageStatePath, JSON.stringify(state, null, 2), 'utf8');
+  let serialised: string;
+  try {
+    serialised = JSON.stringify(state, null, 2);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new EnvError(
+      `auth.setup at ${setupPath} returned a value that is not JSON-serialisable: ${msg}. ` +
+        'Ensure cookies/localStorage entries are plain strings/numbers (no BigInt, no circular refs).'
+    );
+  }
+  // Write to a sibling .tmp file then atomic rename so concurrent
+  // preflight runs in the same checkout cannot interleave a
+  // half-written JSON that a Playwright worker would later fail to
+  // parse when constructing a context with storageState.
+  const tmpPath = `${storageStatePath}.tmp`;
+  await writeFile(tmpPath, serialised, 'utf8');
+  const { rename } = await import('node:fs/promises');
+  await rename(tmpPath, storageStatePath);
   return storageStatePath;
 }
 
@@ -444,14 +479,28 @@ async function importDefaultFn(modPath: string, consumerCwd: string): Promise<()
   } else {
     mod = (await import(pathToFileURL(modPath).href)) as typeof mod;
   }
-  const fn = (mod.default ?? mod) as unknown;
-  if (typeof fn !== 'function') {
+  if (typeof mod.default === 'function') {
+    return mod.default as () => unknown;
+  }
+  // Common consumer mistake: named export only, no default. The
+  // namespace object isn't callable; flagging this with a targeted
+  // message saves a round of "but I exported it" debugging.
+  if (mod.default === undefined) {
+    const namedKeys = Object.keys(mod).filter((k) => k !== 'default');
+    if (namedKeys.length > 0) {
+      throw new EnvError(
+        `${modPath} has no default export, only named export(s): ${namedKeys.join(', ')}. ` +
+          'Change `export async function setupAuth() {...}` to `export default async function setupAuth() {...}`.'
+      );
+    }
     throw new EnvError(
-      `${modPath} must export a default async function returning a storageState (or returning nothing for teardown). ` +
-        `Got: ${typeof fn}.`
+      `${modPath} has no default export. ` +
+        'Use `export default async function() { ... }` returning a Playwright storageState.'
     );
   }
-  return fn as () => unknown;
+  throw new EnvError(
+    `${modPath} default export must be a function returning a storageState. Got: ${typeof mod.default}.`
+  );
 }
 
 async function dynamicImportPreferringConsumer(

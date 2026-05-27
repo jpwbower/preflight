@@ -1,5 +1,6 @@
 import { test, chromium } from '@playwright/test';
 import { loadPreflightConfig } from './_helpers.js';
+import type { ResolvedPreflightConfig } from '../types.js';
 
 const cfg = loadPreflightConfig();
 const isRelease = process.env.PREFLIGHT_RELEASE === '1';
@@ -130,10 +131,20 @@ if (!isRelease) {
           args: [`--remote-debugging-port=${port}`],
         });
         try {
+          // The Lighthouse spec launches its own browser (CDP requirement)
+          // rather than using Playwright's fixture-managed context, so
+          // Playwright's project-level `use.storageState` does NOT apply
+          // here. If cfg.auth produced a cached storageState, we must
+          // pass it explicitly — otherwise an authenticated route would
+          // redirect to /login and Lighthouse would score the login page.
+          const storageStatePath = (cfg as ResolvedPreflightConfig & {
+            storageStatePath?: string;
+          }).storageStatePath;
           const page = await browser.newPage({
             baseURL: cfg.baseURL,
             locale: cfg.locale,
             timezoneId: cfg.timezoneId,
+            ...(storageStatePath ? { storageState: storageStatePath } : {}),
           });
           await page.goto(route.path, { waitUntil: 'domcontentloaded' });
           if (cfg.readyMarker) {

@@ -201,13 +201,18 @@ async function main() {
     return EXIT.ENV_ERROR;
   }
 
-  const { parseArgs } = require_('../dist/cli/parseArgs.js');
+  const { parseArgs, detectFlagConflict } = require_('../dist/cli/parseArgs.js');
   const parsed = parseArgs(rawArgs);
   if (parsed.unknown.length > 0) {
     process.stderr.write(
       `preflight: unknown argument(s): ${parsed.unknown.join(' ')}\n` +
         'Run `preflight --help` for usage.\n'
     );
+    return EXIT.CONFIG_ERROR;
+  }
+  const conflict = detectFlagConflict(parsed);
+  if (conflict) {
+    process.stderr.write(`preflight: ${conflict}\n`);
     return EXIT.CONFIG_ERROR;
   }
 

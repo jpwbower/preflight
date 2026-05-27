@@ -1,6 +1,15 @@
 export type ReporterName = 'line' | 'list' | 'html' | 'json' | 'junit';
 export type EngineFlag = 'chromium' | 'firefox' | 'webkit';
 
+const VALID_ENGINES: ReadonlySet<EngineFlag> = new Set<EngineFlag>(['chromium', 'firefox', 'webkit']);
+const VALID_REPORTERS: ReadonlySet<ReporterName> = new Set<ReporterName>([
+  'line',
+  'list',
+  'html',
+  'json',
+  'junit',
+]);
+
 export interface ParsedArgs {
   command: 'run' | 'init' | 'list' | 'help' | 'version' | 'links' | 'teardown';
   // run-mode flags
@@ -56,6 +65,21 @@ export function parseArgs(argv: string[]): ParsedArgs {
     i++;
   }
 
+  const assignEngine = (raw: string | undefined): void => {
+    if (raw && !VALID_ENGINES.has(raw as EngineFlag)) {
+      args.unknown.push(`--engine=${raw}`);
+      return;
+    }
+    args.engine = raw as EngineFlag | undefined;
+  };
+  const assignReporter = (raw: string | undefined): void => {
+    if (raw && !VALID_REPORTERS.has(raw as ReporterName)) {
+      args.unknown.push(`--reporter=${raw}`);
+      return;
+    }
+    args.reporter = raw as ReporterName | undefined;
+  };
+
   for (; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === '--help' || a === '-h') {
@@ -97,13 +121,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
     } else if (a === '--only') {
       args.only = argv[++i];
     } else if (a.startsWith('--engine=')) {
-      args.engine = a.slice('--engine='.length) as EngineFlag;
+      assignEngine(a.slice('--engine='.length));
     } else if (a === '--engine') {
-      args.engine = argv[++i] as EngineFlag;
+      assignEngine(argv[++i]);
     } else if (a.startsWith('--reporter=')) {
-      args.reporter = a.slice('--reporter='.length) as ReporterName;
+      assignReporter(a.slice('--reporter='.length));
     } else if (a === '--reporter') {
-      args.reporter = argv[++i] as ReporterName;
+      assignReporter(argv[++i]);
     } else if (a.startsWith('--config=')) {
       args.configPath = a.slice('--config='.length);
     } else if (a === '--config') {
@@ -114,6 +138,30 @@ export function parseArgs(argv: string[]): ParsedArgs {
   }
 
   return args;
+}
+
+/**
+ * Cadence-flag conflict checker. Returns a human-readable conflict
+ * message, or null if the flag combination is coherent.
+ *
+ * --visual restricts the matrix to ONE project (cfg.visualProject),
+ * so combining it with --smoke (which also forces engines/viewports)
+ * or --engine (which overrides the engine) silently masks one of the
+ * two. Reject the combination loudly so the user knows which intent
+ * to keep.
+ *
+ * Similarly --release + --visual is incoherent: --release adds heavy
+ * specs gated to the release-supported project, --visual restricts to
+ * only the visual spec on one project. They can't both be true.
+ */
+export function detectFlagConflict(args: ParsedArgs): string | null {
+  if (args.visual) {
+    if (args.smoke) return '--visual cannot be combined with --smoke (they choose different project subsets).';
+    if (args.release) return '--visual cannot be combined with --release (different cadences).';
+    if (args.engine) return '--visual cannot be combined with --engine (use cfg.visualProject to pick the visual project).';
+  }
+  if (args.release && args.smoke) return '--release cannot be combined with --smoke.';
+  return null;
 }
 
 export function helpText(): string {

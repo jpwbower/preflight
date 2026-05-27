@@ -252,7 +252,9 @@ These are the rough edges to know about before you wire preflight into CI.
   hatches you should pick BEFORE running `--visual --update-snapshots` the first time:
 
   ```ts
-  // preflight.config.ts
+  // preflight.config.ts — full file. The `osBuild` const above the
+  // defineConfig() call is load-bearing: snapshotPathTemplate
+  // interpolates it at config-evaluation time.
   import { defineConfig } from 'preflight';
   import os from 'node:os';
 
