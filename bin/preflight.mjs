@@ -215,7 +215,7 @@ async function main() {
     return await cmdInit(parsed, consumerCwd);
   }
 
-  // run | list — both need a resolved config.
+  // run | list | links | teardown — all need a resolved config.
   let configPath = parsed.configPath;
   if (configPath) {
     if (!path.isAbsolute(configPath)) configPath = path.resolve(consumerCwd, configPath);
@@ -282,6 +282,18 @@ async function main() {
     const { renderMatrix } = require_('../dist/cli/runner.js');
     process.stdout.write(renderMatrix({ rawConfig: resolved, args: parsed }) + '\n');
     return EXIT.OK;
+  }
+
+  if (parsed.command === 'teardown') {
+    try {
+      const { runTeardown } = require_('../dist/cli/runner.js');
+      return await runTeardown({ rawConfig: resolved, consumerCwd, verbose: parsed.verbose });
+    } catch (err) {
+      process.stderr.write(
+        `preflight teardown: ${err && err.stack ? err.stack : String(err)}\n`
+      );
+      return EXIT.RUNTIME_ERROR;
+    }
   }
 
   if (parsed.command === 'links') {

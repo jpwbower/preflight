@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import type { ParsedArgs } from './parseArgs.js';
 import type { ResolvedPreflightConfig, EngineName, ViewportName } from '../types.js';
+import { ALL_VIEWPORTS } from '../viewports.js';
 import { DEFAULT_CONSOLE_IGNORE } from '../console-ignore-defaults.js';
 import { writeDisabledRulesArtefact } from '../report/disabled-rules.js';
 
@@ -91,6 +92,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     PREFLIGHT_VERBOSE: args.verbose ? '1' : '0',
     PREFLIGHT_SMOKE: args.smoke ? '1' : '0',
     PREFLIGHT_RELEASE: args.release ? '1' : '0',
+    PREFLIGHT_VISUAL: args.visual ? '1' : '0',
     // PREFLIGHT_VERSION is intentionally NOT forwarded — writeSummary in the
     // parent process takes the version directly, so the child does not need it.
   };
@@ -111,11 +113,13 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const exitCode = await runPlaywright(cliArgs, env, consumerCwd);
 
   const totals = await tallyResults(jsonFile);
-  const cadence: SummaryJson['cadence'] = args.smoke
-    ? 'smoke'
-    : args.release
-      ? 'release'
-      : 'full';
+  const cadence: SummaryJson['cadence'] = args.visual
+    ? 'visual'
+    : args.smoke
+      ? 'smoke'
+      : args.release
+        ? 'release'
+        : 'full';
   await writeSummary(lastRunDir, cfg, exitCode, opts.preflightVersion, totals, cadence);
 
   // Convenience symlink: .preflight/last-run/index.html → html-report/index.html.
@@ -137,11 +141,39 @@ function applyRunFlagsToConfig(
     engines = ['chromium'];
     viewports = ['mobile-375'];
   }
+  if (args.visual) {
+    // Visual regression runs on exactly one project — derive it from
+    // cfg.visualProject (default chromium__desktop-1280). Restricting
+    // engines+viewports here avoids spawning workers for projects that
+    // would only skip from inside the spec body.
+    const projectName = cfg.visualProject ?? 'chromium__desktop-1280';
+    const parsed = parseProjectName(projectName);
+    if (!parsed) {
+      throw new EnvError(
+        `--visual: visualProject "${projectName}" is not a recognised engine__viewport project. ` +
+          'Use a value matching one of the generated project names, e.g. "chromium__desktop-1280".'
+      );
+    }
+    engines = [parsed.engine];
+    viewports = [parsed.viewport];
+  }
   if (args.engine) {
     engines = [args.engine];
   }
 
   return { ...cfg, engines, viewports };
+}
+
+const VALID_ENGINES: ReadonlySet<EngineName> = new Set(['chromium', 'firefox', 'webkit']);
+
+function parseProjectName(name: string): { engine: EngineName; viewport: ViewportName } | null {
+  const idx = name.indexOf('__');
+  if (idx === -1) return null;
+  const engine = name.slice(0, idx);
+  const viewport = name.slice(idx + 2);
+  if (!VALID_ENGINES.has(engine as EngineName)) return null;
+  if (!ALL_VIEWPORTS.includes(viewport as ViewportName)) return null;
+  return { engine: engine as EngineName, viewport: viewport as ViewportName };
 }
 
 function runPlaywright(
@@ -175,7 +207,7 @@ interface SummaryJson {
   finishedAt: string;
   // Discriminator shared with the lychee cadence's summary.json so a
   // single CI consumer can switch on it instead of inferring shape.
-  cadence: 'smoke' | 'full' | 'release' | 'links';
+  cadence: 'smoke' | 'full' | 'release' | 'links' | 'visual';
   exitCode: number;
   totals: {
     passed: number;
@@ -259,6 +291,25 @@ async function linkOrRedirect(lastRunDir: string, htmlReportDir: string): Promis
   }
 }
 
+export interface TeardownOptions {
+  rawConfig: ResolvedPreflightConfig;
+  consumerCwd: string;
+  verbose: boolean;
+}
+
+/**
+ * Stub teardown handler. Commit 3 lands the real auth lifecycle that
+ * gives this function something to do. Until then the subcommand exists
+ * in parseArgs so consumers don't see "unknown argument" when v0.3
+ * docs first land, but it errors loudly rather than silently no-op.
+ */
+export async function runTeardown(_opts: TeardownOptions): Promise<number> {
+  process.stderr.write(
+    'preflight teardown: cfg.auth is not yet wired — auth lifecycle lands in a follow-up commit.\n'
+  );
+  return 4;
+}
+
 export interface ListOptions {
   rawConfig: ResolvedPreflightConfig;
   args: ParsedArgs;
@@ -271,7 +322,11 @@ export function renderMatrix(opts: ListOptions): string {
   const cfg = applyRunFlagsToConfig(opts.rawConfig, opts.args);
   const baseSpecs = ['smoke', 'a11y', 'keyboard', 'emulated-media', 'virtual-sr'];
   const releaseSpecs = ['nvda', 'lighthouse', 'html-validate'];
-  const specs = opts.args.release ? [...baseSpecs, ...releaseSpecs] : baseSpecs;
+  const specs = opts.args.visual
+    ? ['visual']
+    : opts.args.release
+      ? [...baseSpecs, ...releaseSpecs]
+      : baseSpecs;
   const rows: string[] = [];
   rows.push('preflight matrix:');
   rows.push(`  baseURL:    ${cfg.baseURL}`);

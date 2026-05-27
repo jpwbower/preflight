@@ -2,11 +2,13 @@ export type ReporterName = 'line' | 'list' | 'html' | 'json' | 'junit';
 export type EngineFlag = 'chromium' | 'firefox' | 'webkit';
 
 export interface ParsedArgs {
-  command: 'run' | 'init' | 'list' | 'help' | 'version' | 'links';
+  command: 'run' | 'init' | 'list' | 'help' | 'version' | 'links' | 'teardown';
   // run-mode flags
   smoke: boolean;
   release: boolean;
   links: boolean;
+  visual: boolean;
+  noAuth: boolean;
   ci: boolean;
   headed: boolean;
   debug: boolean;
@@ -29,6 +31,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     smoke: false,
     release: false,
     links: false,
+    visual: false,
+    noAuth: false,
     ci: false,
     headed: false,
     debug: false,
@@ -40,12 +44,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
   };
 
   let i = 0;
-  // Subcommand: `preflight init [...]`, `preflight list`
+  // Subcommand: `preflight init [...]`, `preflight list`, `preflight teardown`
   if (argv[i] === 'init') {
     args.command = 'init';
     i++;
   } else if (argv[i] === 'list') {
     args.command = 'list';
+    i++;
+  } else if (argv[i] === 'teardown') {
+    args.command = 'teardown';
     i++;
   }
 
@@ -64,6 +71,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
       // --links promotes the run to the dedicated links command — it
       // bypasses Playwright entirely and shells out to lychee.
       if (args.command === 'run') args.command = 'links';
+    } else if (a === '--visual') {
+      args.visual = true;
+    } else if (a === '--no-auth') {
+      args.noAuth = true;
     } else if (a === '--ci') {
       args.ci = true;
     } else if (a === '--headed') {
@@ -114,20 +125,25 @@ export function helpText(): string {
     '  preflight --smoke            single-engine smoke (chromium + mobile-375)',
     '  preflight --release          full + nvda + lighthouse + html-validate',
     '  preflight --links            lychee link check (standalone, no Playwright)',
+    '  preflight --visual           visual regression on one project (toHaveScreenshot)',
     '  preflight init [--force]     drop starter preflight.config.ts',
     '  preflight init --ci          additionally drop .github/workflows/preflight.yml',
     '  preflight list               print engine x viewport x spec matrix; do not run',
+    '  preflight teardown           run cfg.auth.teardown + delete cached storageState',
     '',
     'CADENCE',
     '  --smoke       per-commit (fast, chromium-only)',
     '  (default)     PR-open (full engine x viewport matrix)',
     '  --release     pre-tag (adds nvda Windows-only, lighthouse chromium-only, html-validate)',
     '  --links       nightly (lychee against the consumer-built site / config)',
+    '  --visual      opt-in (visual regression on one project; baselines consumer-managed)',
     '',
     'FLAGS',
     '  --smoke                      chromium-only, mobile-375 viewport, smoke + a11y smoke',
     '  --release                    add nvda + lighthouse + html-validate to the default suite',
     '  --links                      run lychee link checker only (skips Playwright)',
+    '  --visual                     run only the visual regression spec (toHaveScreenshot)',
+    '  --no-auth                    skip cfg.auth.setup even if configured',
     '  --list                       alias for the `list` subcommand',
     '  --only=<route>               scope to one configured route (matches route.name)',
     '  --engine=<name>              chromium | firefox | webkit',

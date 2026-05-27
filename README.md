@@ -53,6 +53,7 @@ npx preflight --smoke        # chromium-only mobile-375 smoke + a11y smoke
 npx preflight                # full default suite (3 engines x 5 viewports x 5 specs)
 npx preflight --release      # full + nvda (Windows) + lighthouse + html-validate
 npx preflight --links        # lychee link checker (standalone)
+npx preflight --visual       # visual regression on one project (opt-in cadence)
 ```
 
 Every run writes to `.preflight/last-run/`:
@@ -86,8 +87,9 @@ Add `.preflight/` to your `.gitignore`.
 | Lighthouse perf/a11y/seo budgets       | yes — on `--release`, Chromium only |
 | `html-validate` strict markup linting  | yes — on `--release` |
 | Link checking (lychee)                 | yes — on `--links`, separate cadence |
+| Visual regression (toHaveScreenshot)   | yes — on `--visual`, baselines consumer-managed |
 | JAWS screen reader                     | NO — manual / paid audit |
-| Authenticated routes                   | NO — v0.1 ships no auth helpers |
+| Authenticated routes                   | yes — `cfg.auth` storageState lifecycle (v0.3) |
 | Real network throttling                | NO — synthetic Chromium CDP only |
 | Print stylesheets                      | yes |
 | Reduced motion / dark mode             | yes (all engines) |
@@ -134,9 +136,11 @@ preflight                       full default suite
 preflight --smoke               chromium-only, mobile-375 viewport, smoke + a11y smoke
 preflight --release             full + nvda + lighthouse + html-validate
 preflight --links               lychee link check only (skips Playwright)
+preflight --visual              visual regression on one project (skips other specs)
 preflight init [--force]        drop a starter preflight.config.ts
 preflight init --ci             additionally drop .github/workflows/preflight.yml
 preflight list                  print the engine x viewport x spec matrix; do not run
+preflight teardown              run cfg.auth.teardown + delete cached storageState
 preflight --list                alias for the `list` subcommand
 preflight --only=<route>        scope to one configured route (matches route.name)
 preflight --engine=<name>       chromium | firefox | webkit
@@ -148,6 +152,7 @@ preflight --reporter=<name>     line | list | html | json | junit
 preflight --config=<path>       override config discovery
 preflight --ci                  strict defaults: html + junit reporters, fail on warnings, no reuseExistingServer
 preflight --no-reuse            force a fresh webServer launch (debug stuck server)
+preflight --no-auth             skip cfg.auth.setup even if configured
 ```
 
 ### Cadence
@@ -160,12 +165,66 @@ The four cadences exist so each test pays its wallclock cost at the right moment
 | (default)      | PR open / push to main | 1–5 min          | full engine x viewport matrix of v0.1 specs |
 | `--release`    | pre-tag, before publish | 5–20 min         | full + NVDA (Windows) + Lighthouse (Chromium) + html-validate |
 | `--links`      | nightly cron           | depends on site  | lychee against the configured routes; no browser launch |
+| `--visual`     | opt-in (consumer choice) | depends on site | toHaveScreenshot per route on one project; baselines consumer-managed |
 
 ---
 
 ## Gotchas
 
 These are the rough edges to know about before you wire preflight into CI.
+
+### v0.3 additions
+
+- **Visual regression baselines drift across Windows minor updates.** ClearType
+  subpixel font hinting is recomputed when Windows updates the system font cache,
+  which lands silently — a baseline captured on Windows 11 build 22631 will mismatch
+  on 22635 even though no application code changed. preflight ships NO baselines and
+  ships no opinion on where you store them, but it surfaces two Playwright escape
+  hatches you should pick BEFORE running `--visual --update-snapshots` the first time:
+
+  ```ts
+  // preflight.config.ts
+  import { defineConfig } from 'preflight';
+  import os from 'node:os';
+
+  // Encode the Windows build number into the snapshot path so each build
+  // gets its own baseline tree. `os.release()` on Windows returns
+  // "10.0.22631", which keys the snapshots to the kernel version.
+  const osBuild = process.platform === 'win32' ? os.release() : process.platform;
+
+  export default defineConfig({
+    baseURL: 'http://127.0.0.1:3000',
+    routes: [{ name: 'home', path: '/' }],
+    webServer: { command: 'npm run dev', url: 'http://127.0.0.1:3000' },
+
+    visualThreshold: 0.01, // tolerate 1% pixel drift per snapshot
+
+    playwrightOverrides: {
+      // Each Windows build (and each non-Windows platform) gets its own
+      // baseline tree. The `{arg}` token is Playwright's snapshot name.
+      snapshotPathTemplate: `__screenshots__/${osBuild}/{arg}{ext}`,
+    },
+  });
+  ```
+
+  Pick the level of tolerance you need: `visualThreshold` (a single 0..1 number
+  passed to Playwright's `maxDiffPixelRatio`) is the cheap mass-tolerance knob;
+  `snapshotPathTemplate` segregates baselines so a Windows update doesn't break
+  every snapshot at once. Use both. Floor for `visualThreshold` is 0.01 — exact
+  matching (0.0) WILL flake even between two consecutive runs on the same machine.
+
+- **`--visual` runs ONLY the visual spec.** Other specs are excluded at config
+  level, not skipped at runtime. This is intentional: visual regression is a
+  separate cadence, not a default add-on, because baselines are a maintenance
+  cost the consumer opts into. To capture or update baselines:
+
+  ```sh
+  npx preflight --visual --update-snapshots    # capture / overwrite baselines
+  npx preflight --visual                       # compare against existing
+  ```
+
+  By default the visual spec runs on `chromium__desktop-1280` only. Override via
+  `visualProject: 'firefox__tablet-768'` (must match a generated project name).
 
 ### v0.2 additions
 
@@ -216,12 +275,11 @@ These are the rough edges to know about before you wire preflight into CI.
 
 ---
 
-## What's coming in v0.3
+## What's coming in v0.4+
 
-- Optional visual regression via Playwright's `toHaveScreenshot()` with a documented Windows-flake escape hatch
-- Authenticated-route helpers (`storageState` lifecycle, expiry handling)
+- macOS VoiceOver (Guidepup exposes the API; preflight has not wired the path yet — needs a Mac dev box in the validation loop)
 - Real network throttling (Chromium CDP, exposed as a config knob)
-- Per-route `lighthouseThresholds` (today's setting is suite-wide)
+- Consumer-registered release-only specs via project-level gating refactor
 
 ---
 
@@ -230,13 +288,11 @@ These are the rough edges to know about before you wire preflight into CI.
 Honest list, not optimistic:
 
 - Real iOS Safari behaviour (only Playwright WebKit, which is engine-close but not behaviour-identical).
-- Authenticated routes (no `storageState` helpers shipped yet).
 - Real network throttling (synthetic Chromium CDP only, and not exposed via the config surface yet).
 - Real Android Chrome with real GPU and real touch.
 - Embedded webviews (Facebook in-app browser, Twitter card, etc.).
 - JavaScript bundle-size budgets.
 - Server-side rendering correctness beyond first paint.
-- Visual regression (planned for v0.3).
 - JAWS and VoiceOver (NVDA only — Guidepup supports VoiceOver but preflight has not wired the macOS path yet).
 
 ---

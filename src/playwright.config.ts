@@ -39,6 +39,7 @@ const cfg = loadConfigFromEnv();
 const profiles = buildViewportProfiles();
 const isCi = process.env.PREFLIGHT_CI === '1';
 const isRelease = process.env.PREFLIGHT_RELEASE === '1';
+const isVisual = process.env.PREFLIGHT_VISUAL === '1';
 
 /**
  * Release-only spec files. These are gated to one supported project
@@ -56,6 +57,15 @@ const RELEASE_ONLY_SPECS = [
   '**/html-validate.spec.js',
 ];
 const RELEASE_SUPPORTED_PROJECT = 'chromium__desktop-1280';
+
+/**
+ * Visual regression spec is gated differently from release: --visual is
+ * FLAG-driven (run only visual.spec.js, hide everything else) whereas
+ * --release is PROJECT-driven (release specs only load on the
+ * Chromium desktop-1280 project, the rest of the suite still runs). We
+ * can't merge them into one map — they need opposite testMatch shapes.
+ */
+const VISUAL_SPEC = '**/visual.spec.js';
 
 const engineUseMap: Record<EngineName, ReturnType<typeof devices.valueOf> extends infer T ? T : never> = {
   chromium: devices['Desktop Chrome']!,
@@ -153,8 +163,12 @@ function buildProjects(): PlaywrightTestConfig['projects'] {
 
 const config: PlaywrightTestConfig = defineConfig({
   testDir: path.join(__dirname, 'specs'),
-  // We compile .ts → .js, so the published surface matches .spec.js
-  testMatch: ['**/*.spec.js'],
+  // We compile .ts → .js, so the published surface matches .spec.js.
+  // --visual flips the include to ONLY visual.spec.js so baselines are
+  // captured in isolation; otherwise visual.spec.js is excluded so
+  // normal cadences don't accidentally generate or compare baselines.
+  testMatch: isVisual ? [VISUAL_SPEC] : ['**/*.spec.js'],
+  testIgnore: isVisual ? undefined : [VISUAL_SPEC],
 
   fullyParallel: true,
   forbidOnly: isCi,
