@@ -8,9 +8,9 @@ delete prior chunk rows — append to "Chunks complete".
 ## Current state
 
 - Version shipped: v0.1.0
-- Tag pushed: _set after operator confirms_
+- Tag pushed: yes
 - Branch: main
-- HEAD SHA at last close: _set on chunk close (see `git log -1 --format=%H`)_
+- HEAD SHA at last close: e61f49ed45884dd1aaf08b19058f3de0ceb4fa00 (pre-tag; tag commit is the next SHA)
 - Node version exercised: 24.14.0 (Node 22 LTS is the pinned floor; operator dev box on 24)
 - npm version exercised: 11.9.0
 - Playwright version exercised: see `npm ls @playwright/test` (locked to ^1.50.0 via package-lock.json)
@@ -20,7 +20,7 @@ delete prior chunk rows — append to "Chunks complete".
 
 | Chunk | Version | Scope | Commit range | HEAD SHA | Tag |
 | ----- | ------- | ----- | ------------ | -------- | --- |
-| 1 | v0.1.0 | Scaffold: package, types, defineConfig, Playwright matrix, smoke / a11y / keyboard / emulated-media / virtual-sr specs, CLI entry, init template, full README | root → v0.1.0 | _filled at tag time_ | v0.1.0 |
+| 1 | v0.1.0 | Scaffold: package, types, defineConfig, Playwright matrix, smoke / a11y / keyboard / emulated-media / virtual-sr specs, CLI entry, init template, full README, R5 remediation of Opus review findings | root..v0.1.0 | e61f49e (+ tag commit) | v0.1.0 |
 
 ## Chunks remaining
 
