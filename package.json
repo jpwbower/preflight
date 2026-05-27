@@ -1,7 +1,7 @@
 {
   "name": "preflight",
   "version": "0.1.0",
-  "description": "Local-only web-assurance scaffolding for any web project. Runs Playwright (Chromium/Firefox/WebKit) plus axe-core and virtual screen reader against your dev server, with no SaaS dependency.",
+  "description": "Local-only web-assurance scaffolding for any web project. Runs Playwright (Chromium/Firefox/WebKit) plus axe-core, accessible-name sweep, real-NVDA (via Guidepup on --release, opt-in), Lighthouse budgets, html-validate, and lychee link-check against your dev server, with no SaaS dependency.",
   "license": "MIT",
   "author": "preflight contributors",
   "type": "module",
@@ -41,8 +41,14 @@
     "tsx": "^4.19.0"
   },
   "devDependencies": {
+    "@guidepup/guidepup": "^0.24.1",
+    "@guidepup/playwright": "^0.15.0",
+    "@guidepup/setup": "^0.21.0",
     "@playwright/test": "^1.50.0",
     "@types/node": "^22.10.0",
+    "html-validate": "^11.4.0",
+    "lighthouse": "^13.3.0",
+    "playwright-lighthouse": "^4.0.0",
     "typescript": "^5.7.0"
   },
   "keywords": [
