@@ -30,11 +30,20 @@ function readSelfVersion() {
   }
 }
 
-async function dynamicImportFromConsumer(specifier, consumerCwd) {
-  // Load a module from the consumer's installed copy, not preflight's.
-  const consumerRequire = createRequire(path.join(consumerCwd, 'package.json'));
-  const resolved = consumerRequire.resolve(specifier);
-  return import(pathToFileURL(resolved).href);
+async function dynamicImportPreferringConsumer(specifier, consumerCwd) {
+  // Try the consumer's copy first (lets them pin tsx if they want), then
+  // fall back to preflight's bundled copy. Nested `node_modules/preflight/
+  // node_modules/tsx` won't be found by walking up from the consumer dir,
+  // so the fallback is what real installs actually use.
+  try {
+    const consumerRequire = createRequire(path.join(consumerCwd, 'package.json'));
+    const resolved = consumerRequire.resolve(specifier);
+    return await import(pathToFileURL(resolved).href);
+  } catch {
+    const selfRequire = createRequire(path.join(__dirname, '..', 'package.json'));
+    const resolved = selfRequire.resolve(specifier);
+    return await import(pathToFileURL(resolved).href);
+  }
 }
 
 /**
@@ -66,8 +75,12 @@ async function loadConsumerConfig(configPath, consumerCwd) {
     // Use the consumer's installed `tsx` (preflight declares it as a regular
     // dep so it is always available).
     try {
-      const tsx = await dynamicImportFromConsumer('tsx/esm/api', consumerCwd);
-      const loaded = await tsx.tsImport(configPath, import.meta.url);
+      const tsx = await dynamicImportPreferringConsumer('tsx/esm/api', consumerCwd);
+      // tsImport accepts a specifier + parent URL. On Windows an absolute
+      // path like `D:\...` is mis-parsed as a URL with scheme `d:`, so we
+      // convert to a file:// URL first.
+      const configUrl = pathToFileURL(configPath).href;
+      const loaded = await tsx.tsImport(configUrl, import.meta.url);
       return loaded.default ?? loaded;
     } catch (err) {
       throw new ConfigError(

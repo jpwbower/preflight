@@ -1,65 +1,137 @@
 import { test, expect } from '@playwright/test';
-import { virtual } from '@guidepup/virtual-screen-reader';
 import { loadPreflightConfig } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
 const route = cfg.routes[0]!;
 
 /**
- * Virtual screen reader sanity sweep.
+ * Accessibility-name sanity sweep — the "virtual screen reader" check.
  *
- * @guidepup/virtual-screen-reader does NOT drive a real assistive
- * technology — it walks Playwright's accessibility tree using the same
- * traversal rules as a real SR. That makes it useful for catching
- * structural a11y bugs (a button with no name, a region with no label,
- * an image with no alt) without the OS/native-binary setup cost of
- * NVDA/JAWS/VoiceOver. Real NVDA arrives in v0.2 via Guidepup proper.
+ * Walks every interactive element on the page and asserts each has an
+ * accessible name a screen reader can announce. The name is derived in
+ * the page context using the platform-standard sources (in order):
+ *   1. aria-labelledby → text of the referenced elements
+ *   2. aria-label
+ *   3. associated <label> (for form controls)
+ *   4. visible text content
+ *   5. title attribute (last resort — discouraged but real)
+ *   6. for <img>: alt
  *
- * We capture the first ~30 stops of the SR walk. The assertion floor is
- * intentionally low: every announcement must be non-empty. If a stop
- * comes back as `""`, an interactive element is being read as silent —
- * which is what we want to catch.
+ * This is intentionally NOT a real-AT integration. Real NVDA / JAWS /
+ * VoiceOver coverage arrives in v0.2 via Guidepup proper (needs OS-level
+ * setup that triggers UAC / SmartScreen on Windows). The structural
+ * check below catches the most common bug — `<button><svg/></button>`
+ * with no name — without that friction.
  */
-test.describe('virtual screen reader', () => {
-  test(`SR walk on ${route.name}`, async ({ page }) => {
+test.describe('a11y tree walk (virtual screen reader equivalent)', () => {
+  test(`accessible-name sweep on ${route.name}`, async ({ page }) => {
     await page.goto(route.path, { waitUntil: 'domcontentloaded' });
     if (cfg.readyMarker) await page.waitForSelector(cfg.readyMarker, { state: 'attached', timeout: 30_000 });
 
-    await virtual.start({ container: await page.locator('body').elementHandle() as never });
+    await page.waitForTimeout(250);
 
-    const announcements: string[] = [];
-    try {
-      for (let i = 0; i < 30; i++) {
-        await virtual.next();
-        const text = await virtual.lastSpokenPhrase();
-        announcements.push(text);
-        // Stop if we've cycled (last few stops are identical).
-        if (
-          announcements.length >= 4 &&
-          announcements[announcements.length - 1] === announcements[announcements.length - 2] &&
-          announcements[announcements.length - 2] === announcements[announcements.length - 3]
-        ) {
-          break;
+    const nameless = await page.evaluate(() => {
+      const interactiveSelector = [
+        'a[href]',
+        'button',
+        'input:not([type="hidden"])',
+        'select',
+        'textarea',
+        '[role="button"]',
+        '[role="link"]',
+        '[role="checkbox"]',
+        '[role="radio"]',
+        '[role="textbox"]',
+        '[role="switch"]',
+        '[role="combobox"]',
+        '[role="menuitem"]',
+        '[role="tab"]',
+        '[role="option"]',
+        '[role="slider"]',
+        '[role="spinbutton"]',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(',');
+
+      const isVisible = (el: Element): boolean => {
+        const cs = (el.ownerDocument!.defaultView ?? window).getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return false;
+        if ((el as HTMLElement).hidden) return false;
+        if (el.closest('[aria-hidden="true"]')) return false;
+        return true;
+      };
+
+      const accessibleName = (el: Element): string => {
+        const h = el as HTMLElement;
+
+        // aria-labelledby resolution
+        const labelledBy = h.getAttribute('aria-labelledby');
+        if (labelledBy) {
+          const parts = labelledBy
+            .split(/\s+/)
+            .map((id) => document.getElementById(id))
+            .filter((n): n is HTMLElement => n !== null)
+            .map((n) => (n.textContent ?? '').trim())
+            .filter((s) => s.length > 0);
+          if (parts.length > 0) return parts.join(' ');
+        }
+
+        // aria-label
+        const ariaLabel = h.getAttribute('aria-label');
+        if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+
+        // <label for=...> or wrapping <label>
+        if (h instanceof HTMLInputElement || h instanceof HTMLSelectElement || h instanceof HTMLTextAreaElement) {
+          const id = h.id;
+          if (id) {
+            const lbl = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+            if (lbl && (lbl.textContent ?? '').trim()) return (lbl.textContent ?? '').trim();
+          }
+          const parent = h.closest('label');
+          if (parent && (parent.textContent ?? '').trim()) return (parent.textContent ?? '').trim();
+        }
+
+        // <img alt>
+        if (h instanceof HTMLImageElement && h.alt) return h.alt;
+
+        // visible text
+        const text = (h.textContent ?? '').trim();
+        if (text) return text;
+
+        // title fallback
+        const title = h.getAttribute('title');
+        if (title && title.trim()) return title.trim();
+
+        return '';
+      };
+
+      const findings: { selector: string; role: string }[] = [];
+      const elements = Array.from(document.querySelectorAll(interactiveSelector));
+      for (const el of elements) {
+        if (!isVisible(el)) continue;
+        // Decorative / presentational override
+        if (el.getAttribute('role') === 'presentation' || el.getAttribute('role') === 'none') continue;
+
+        const name = accessibleName(el);
+        if (name.length === 0) {
+          const tag = el.tagName.toLowerCase();
+          const role = el.getAttribute('role') ?? tag;
+          // Build a stable selector hint
+          const id = el.id ? `#${el.id}` : '';
+          const cls = el.className && typeof el.className === 'string'
+            ? `.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}`
+            : '';
+          findings.push({ selector: `${tag}${id}${cls}`, role });
         }
       }
-    } finally {
-      await virtual.stop();
-    }
+      return findings;
+    });
 
+    const report = nameless.map((n) => `  ${n.role}  ${n.selector}`).join('\n');
     expect(
-      announcements.length,
-      'virtual SR produced no announcements — accessibility tree may be empty'
-    ).toBeGreaterThan(0);
-
-    const silentStops = announcements
-      .map((text, i) => ({ text, i }))
-      .filter(({ text }) => text.trim() === '');
-
-    expect(
-      silentStops,
-      `${silentStops.length} silent SR stop(s) on ${route.path}. ` +
-        'A silent stop means an interactive element is being read with no name — ' +
-        'add an accessible name (aria-label, aria-labelledby, or visible text).'
+      nameless,
+      `interactive elements with no accessible name on ${route.path}:\n${report || '(none)'}\n` +
+        'Add aria-label, aria-labelledby, an associated <label>, or visible text. ' +
+        'A screen reader user will hear these as bare role announcements with no further information.'
     ).toEqual([]);
   });
 });

@@ -27,7 +27,8 @@ Initial release. Local-only web-assurance scaffolding for any web project.
   requests), `a11y` (axe-core WCAG 2.0/2.1/2.2 A+AA),
   `keyboard` (Tab walk + focus-indicator), `emulated-media` (reduced
   motion, dark / light, prefers-contrast, forced-colors, print),
-  `virtual-sr` (`@guidepup/virtual-screen-reader` walk).
+  `virtual-sr` (in-page accessible-name sweep — flags interactive
+  elements with no name a screen reader could announce).
 - Default console-error ignore-list: adblocker-blocked analytics,
   framework deprecation warnings, browser-extension noise. Consumer
   `consoleIgnore` is concatenated, never replaces.

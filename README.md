@@ -2,7 +2,7 @@
 
 Local-only web-assurance scaffolding for any web project.
 
-`preflight` wires together [Playwright](https://playwright.dev/), [axe-core](https://github.com/dequelabs/axe-core), and [@guidepup/virtual-screen-reader](https://github.com/guidepup/virtual-screen-reader) into a single CLI you can drop into any web project. It runs against your own dev server (or any URL), produces inspection-ready artefacts under `.preflight/last-run/`, and asks for no SaaS account, no cloud credit, and no telemetry. The audience is any developer building a website who wants a base-level local browser-assurance harness without paying for a SaaS audit tool.
+`preflight` wires together [Playwright](https://playwright.dev/) and [axe-core](https://github.com/dequelabs/axe-core) into a single CLI you can drop into any web project. It runs against your own dev server (or any URL), produces inspection-ready artefacts under `.preflight/last-run/`, and asks for no SaaS account, no cloud credit, and no telemetry. The audience is any developer building a website who wants a base-level local browser-assurance harness without paying for a SaaS audit tool.
 
 This is **scaffolding**, not magic. preflight catches a floor of common regressions (HTTP failures, console errors, axe violations, missing focus indicators, broken accessibility names, broken media emulations). It does not replace real-device QA, paid accessibility audits, or human review.
 
@@ -153,6 +153,8 @@ These are the rough edges to know about before you wire preflight into CI.
 - **Playwright WebKit on Windows + localhost IPv6.** Some Windows 11 configurations do not route WebKit's `localhost` to IPv4. If WebKit tests cannot connect but Chromium/Firefox work, force IPv4: `baseURL: 'http://127.0.0.1:<port>'`.
 
 - **Disabled axe rules are logged loudly at the top of every report.** This is intentional anti-compliance-theatre. Do not silence the warning by editing the report — silence it by removing the suppression from your config.
+
+- **Firefox does not support mobile / touch emulation.** Playwright's Firefox build does not honour `isMobile`, `hasTouch`, or `deviceScaleFactor` on `newContext`. preflight still runs the Firefox engine at every viewport _size_ (so responsive CSS is exercised), but `firefox__mobile-*` projects use a desktop UA and no touch flag. For real mobile-Firefox QA, use a real device.
 
 ---
 

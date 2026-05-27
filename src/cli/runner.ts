@@ -109,7 +109,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
 
   const exitCode = await runPlaywright(cliArgs, env, consumerCwd);
 
-  await writeSummary(lastRunDir, cfg, exitCode);
+  await writeSummary(lastRunDir, cfg, exitCode, opts.preflightVersion);
 
   // Convenience symlink: .preflight/last-run/index.html → html-report/index.html.
   // Symlink creation on Windows requires elevation or Developer Mode; if it
@@ -181,10 +181,11 @@ interface SummaryJson {
 async function writeSummary(
   outDir: string,
   cfg: ResolvedPreflightConfig,
-  exitCode: number
+  exitCode: number,
+  preflightVersion: string
 ): Promise<void> {
   const summary: SummaryJson = {
-    version: process.env.PREFLIGHT_VERSION ?? '0.0.0',
+    version: preflightVersion,
     finishedAt: new Date().toISOString(),
     exitCode,
     config: {

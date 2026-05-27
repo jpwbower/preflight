@@ -49,21 +49,30 @@ function buildProjects(): PlaywrightTestConfig['projects'] {
   const projects: NonNullable<PlaywrightTestConfig['projects']> = [];
   for (const engine of cfg.engines) {
     const engineUse = engineUseMap[engine];
+    // Firefox does not support isMobile/hasTouch/deviceScaleFactor on
+    // newContext. We still vary the viewport size so responsive
+    // breakpoints get exercised; touch/UA emulation is a no-op there.
+    const supportsMobileEmulation = engine !== 'firefox';
     for (const vpName of cfg.viewports) {
       const profile: ViewportProfile = profiles[vpName];
+      const useBlock: NonNullable<PlaywrightTestConfig['projects']>[number]['use'] = {
+        ...engineUse,
+        baseURL: cfg.baseURL,
+        locale: cfg.locale,
+        timezoneId: cfg.timezoneId,
+        viewport: profile.viewport,
+      };
+      if (supportsMobileEmulation) {
+        if (profile.deviceScaleFactor !== undefined) useBlock.deviceScaleFactor = profile.deviceScaleFactor;
+        if (profile.isMobile !== undefined) useBlock.isMobile = profile.isMobile;
+        if (profile.hasTouch !== undefined) useBlock.hasTouch = profile.hasTouch;
+        if (profile.userAgent) useBlock.userAgent = profile.userAgent;
+      }
+      // Firefox keeps its own desktop UA + DPR — mobile/touch emulation is
+      // a no-op there, but the viewport size still exercises responsive CSS.
       projects.push({
         name: `${engine}__${vpName}`,
-        use: {
-          ...engineUse,
-          baseURL: cfg.baseURL,
-          locale: cfg.locale,
-          timezoneId: cfg.timezoneId,
-          viewport: profile.viewport,
-          deviceScaleFactor: profile.deviceScaleFactor,
-          isMobile: profile.isMobile,
-          hasTouch: profile.hasTouch,
-          ...(profile.userAgent ? { userAgent: profile.userAgent } : {}),
-        },
+        use: useBlock,
         metadata: {
           engine,
           viewport: vpName,

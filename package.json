@@ -8,6 +8,15 @@
   "engines": {
     "node": ">=22"
   },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "preflight": "bin/preflight.mjs"
   },
@@ -28,7 +37,6 @@
   },
   "dependencies": {
     "@axe-core/playwright": "^4.10.0",
-    "@guidepup/virtual-screen-reader": "^0.30.0",
     "tsx": "^4.19.0"
   },
   "devDependencies": {
