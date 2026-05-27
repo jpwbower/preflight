@@ -23,7 +23,16 @@ const KNOWN_KEYS = new Set<keyof PreflightConfig>([
   'readyMarker',
   'locale',
   'timezoneId',
+  'lighthouseThresholds',
   'playwrightOverrides',
+]);
+
+const LIGHTHOUSE_CATEGORIES = new Set([
+  'performance',
+  'accessibility',
+  'best-practices',
+  'seo',
+  'pwa',
 ]);
 
 export class PreflightConfigError extends Error {
@@ -178,6 +187,26 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
   if (cfg.readyMarker !== undefined && (typeof cfg.readyMarker !== 'string' || cfg.readyMarker.length === 0)) {
     throw new PreflightConfigError('readyMarker, if set, must be a non-empty selector string.');
   }
+  let lighthouseThresholds: ResolvedPreflightConfig['lighthouseThresholds'];
+  if (cfg.lighthouseThresholds !== undefined) {
+    if (cfg.lighthouseThresholds === null || typeof cfg.lighthouseThresholds !== 'object') {
+      throw new PreflightConfigError('lighthouseThresholds must be an object of category → score.');
+    }
+    const lt = cfg.lighthouseThresholds as Record<string, unknown>;
+    for (const [k, v] of Object.entries(lt)) {
+      if (!LIGHTHOUSE_CATEGORIES.has(k)) {
+        throw new PreflightConfigError(
+          `lighthouseThresholds["${k}"] is not a recognised category. Known: ${Array.from(LIGHTHOUSE_CATEGORIES).join(', ')}.`
+        );
+      }
+      if (typeof v !== 'number' || v < 0 || v > 100 || !Number.isFinite(v)) {
+        throw new PreflightConfigError(
+          `lighthouseThresholds["${k}"] must be a number between 0 and 100.`
+        );
+      }
+    }
+    lighthouseThresholds = lt as ResolvedPreflightConfig['lighthouseThresholds'];
+  }
   if (cfg.locale !== undefined && (typeof cfg.locale !== 'string' || cfg.locale.length === 0)) {
     throw new PreflightConfigError('locale, if set, must be a non-empty BCP-47 string.');
   }
@@ -196,6 +225,7 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     readyMarker: cfg.readyMarker as string | undefined,
     locale: (cfg.locale as string | undefined) ?? 'en-GB',
     timezoneId: (cfg.timezoneId as string | undefined) ?? 'Europe/London',
+    lighthouseThresholds,
     playwrightOverrides: cfg.playwrightOverrides as ResolvedPreflightConfig['playwrightOverrides'],
   };
 }

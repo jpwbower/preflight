@@ -13,7 +13,7 @@ This is **scaffolding**, not magic. preflight catches a floor of common regressi
 Pin to a tag, not floating `main`:
 
 ```sh
-npm i -D github:<your-org>/preflight#v0.1.0
+npm i -D github:<your-org>/preflight#v0.2.0
 npx playwright install
 ```
 
@@ -21,15 +21,38 @@ The `npx playwright install` step downloads Chromium, Firefox, and WebKit (~650 
 
 `tsx` is pulled in automatically so your `preflight.config.ts` is loaded without a separate build step.
 
+### Optional v0.2 extras
+
+The heavier `--release` and `--links` cadences need additional installs. They're devDeps in preflight itself but not auto-bundled — install whichever you actually run:
+
+```sh
+# For `preflight --release` (NVDA + Lighthouse + html-validate):
+npm i -D @guidepup/guidepup @guidepup/playwright @guidepup/setup \
+         lighthouse playwright-lighthouse html-validate
+
+# For NVDA specifically (Windows only): also run setup ONCE per machine.
+node node_modules/@guidepup/setup/bin/setup
+
+# For `preflight --links` (lychee CLI — NOT an npm package):
+#   macOS:    brew install lychee
+#   Windows:  scoop install lychee   (or `cargo install lychee`)
+#   Linux:    cargo install lychee   (or download from GitHub releases)
+```
+
+Each spec degrades gracefully — if its dep is missing or NVDA isn't set up, the spec skips with a clear message instead of crashing.
+
 ---
 
 ## Quick start
 
 ```sh
-npx preflight init        # drops preflight.config.ts in your CWD
+npx preflight init           # drops preflight.config.ts in your CWD
+npx preflight init --ci      # additionally drops .github/workflows/preflight.yml
 # edit baseURL, routes, webServer
-npx preflight --smoke     # chromium-only mobile-375 smoke + a11y smoke
-npx preflight             # full default suite (3 engines x 5 viewports x 5 specs)
+npx preflight --smoke        # chromium-only mobile-375 smoke + a11y smoke
+npx preflight                # full default suite (3 engines x 5 viewports x 5 specs)
+npx preflight --release      # full + nvda (Windows) + lighthouse + html-validate
+npx preflight --links        # lychee link checker (standalone)
 ```
 
 Every run writes to `.preflight/last-run/`:
@@ -59,7 +82,10 @@ Add `.preflight/` to your `.gitignore`.
 | macOS Safari real device               | NO — manual smoke recommended |
 | Android Chrome real GPU                | NO — Chromium engine only |
 | Older browser versions                 | NO |
-| NVDA screen reader                     | v0.2 |
+| NVDA screen reader                     | yes — on `--release`, Windows only (Guidepup) |
+| Lighthouse perf/a11y/seo budgets       | yes — on `--release`, Chromium only |
+| `html-validate` strict markup linting  | yes — on `--release` |
+| Link checking (lychee)                 | yes — on `--links`, separate cadence |
 | JAWS screen reader                     | NO — manual / paid audit |
 | Authenticated routes                   | NO — v0.1 ships no auth helpers |
 | Real network throttling                | NO — synthetic Chromium CDP only |
@@ -105,9 +131,12 @@ preflight's WebKit project is engine-close, not behaviour-identical to iOS Safar
 
 ```
 preflight                       full default suite
-preflight init [--force]        drop a starter preflight.config.ts
-preflight list                  print the engine x viewport x spec matrix; do not run
 preflight --smoke               chromium-only, mobile-375 viewport, smoke + a11y smoke
+preflight --release             full + nvda + lighthouse + html-validate
+preflight --links               lychee link check only (skips Playwright)
+preflight init [--force]        drop a starter preflight.config.ts
+preflight init --ci             additionally drop .github/workflows/preflight.yml
+preflight list                  print the engine x viewport x spec matrix; do not run
 preflight --list                alias for the `list` subcommand
 preflight --only=<route>        scope to one configured route (matches route.name)
 preflight --engine=<name>       chromium | firefox | webkit
@@ -121,11 +150,40 @@ preflight --ci                  strict defaults: html + junit reporters, fail on
 preflight --no-reuse            force a fresh webServer launch (debug stuck server)
 ```
 
+### Cadence
+
+The four cadences exist so each test pays its wallclock cost at the right moment:
+
+| Flag           | When to run            | Wallclock target | Covers |
+| -------------- | ---------------------- | ---------------- | ------ |
+| `--smoke`      | every push             | < 60 s           | smoke + a11y smoke, chromium + mobile-375 only |
+| (default)      | PR open / push to main | 1–5 min          | full engine x viewport matrix of v0.1 specs |
+| `--release`    | pre-tag, before publish | 5–20 min         | full + NVDA (Windows) + Lighthouse (Chromium) + html-validate |
+| `--links`      | nightly cron           | depends on site  | lychee against the configured routes; no browser launch |
+
 ---
 
-## Gotchas (v0.1)
+## Gotchas
 
 These are the rough edges to know about before you wire preflight into CI.
+
+### v0.2 additions
+
+- **`node node_modules/@guidepup/setup/bin/setup` is the first-run install for NVDA.** It downloads a custom NVDA build (~30 MB) from GitHub, writes `HKCU\Software\Guidepup\Nvda`, modifies `HKCU\Control Panel\Desktop\ForegroundLockTimeout`, and **kills + restarts `explorer.exe`** — your open File Explorer windows will close and the taskbar will blink. It does NOT trigger UAC, an MSI installer, or SmartScreen, but Windows Defender Real-time Protection will scan the download (expect a few seconds of AV CPU). On corporate machines, endpoint policy may quarantine the download silently — check Defender history if setup hangs or completes without registering the key. The downloaded binary lives in `%TEMP%\guidepup_nvda_*`; periodic Storage Sense cleanup can wipe it, leaving a stale registry path. Re-run setup if `preflight --release` complains that NVDA cannot launch.
+
+- **`--release` runs the BUILT artefact, not the dev server.** Lighthouse perf scores against a `next dev` / `vite dev` server are meaningless (dev-mode bundling, HMR overhead, source maps inline). Configure your `webServer.command` to `npm run build && npm run start` (or equivalent) when running `--release`; wallclock will be longer but the budgets will reflect production. Consider a separate `preflight.release.config.ts` if your dev + prod commands diverge significantly — point `preflight --release --config=preflight.release.config.ts` at it.
+
+- **ClearType subpixel font hinting on Windows still moves between minor updates.** v0.2 does NOT yet wire visual regression — that's deferred to v0.3 — but the warning stands for any consumer running their OWN `toHaveScreenshot()` baselines: a Windows Update can shift baselines by 1–2 pixels per glyph and break every snapshot. If you add visual regression today, set Playwright's `_ctx.snapshotPathTemplate` to encode the Windows build number, or accept tolerance via `maxDiffPixelRatio`.
+
+- **Cadence discipline.** The four cadences shipped in v0.2 are deliberate — running `--release` on every push trains people to ignore failures. `--smoke` exists to give the per-push signal latency budget (< 60 s); the default suite belongs on PR open; `--release` belongs on the pre-tag job (so failures gate a publish, not a feature branch); `--links` is nightly because link-rot is a slow problem and lychee against a large site costs minutes. Don't merge them into a single mega-job.
+
+- **`.preflight/last-run/` is the canonical artefact surface for CI consumption.** Wire your CI's "upload-artifact" step at `.preflight/last-run/` — every cadence writes there:
+  - `summary.json` — pass/fail counts + config snapshot, machine-readable. This is what a CI dashboard should read.
+  - `disabled-axe-rules.md` — loud list of every axe rule the consumer suppressed, with their justification. **This is the canonical "what got disabled and why" artefact, NOT the HTML report header.** A CI check that fails when this file's contents change is the cheapest way to catch silent rule additions.
+  - `html-report/index.html` — Playwright's HTML report (full traces, screenshots, videos on failure).
+  - `lychee-output.txt` — present only after `--links`; the raw lychee output for triage.
+
+### v0.1 baseline
 
 - **`storageState` reuse will break tests if you add authenticated routes later.** preflight ships clean-by-default config; if you add auth via a `globalSetup`, also add a `globalTeardown` that deletes any `storageState.json` before the next run. v0.1 does not ship auth helpers.
 
@@ -158,15 +216,12 @@ These are the rough edges to know about before you wire preflight into CI.
 
 ---
 
-## What's coming in v0.2
+## What's coming in v0.3
 
-- Real NVDA via Guidepup
-- Lighthouse perf + a11y + SEO budgets on `--release`
-- `html-validate` on `--release`
-- `lychee` link checker on `--links`
-- GitHub Actions workflow template via `preflight init --ci`
-- Optional visual regression via Playwright's `toHaveScreenshot()`
-- Five more gotchas (NVDA + Windows Defender / UAC, font flake details, `--release` runs the built artefact, cadence discipline, `.preflight/last-run/` usage patterns)
+- Optional visual regression via Playwright's `toHaveScreenshot()` with a documented Windows-flake escape hatch
+- Authenticated-route helpers (`storageState` lifecycle, expiry handling)
+- Real network throttling (Chromium CDP, exposed as a config knob)
+- Per-route `lighthouseThresholds` (today's setting is suite-wide)
 
 ---
 
@@ -175,14 +230,14 @@ These are the rough edges to know about before you wire preflight into CI.
 Honest list, not optimistic:
 
 - Real iOS Safari behaviour (only Playwright WebKit, which is engine-close but not behaviour-identical).
-- Authenticated routes (no `storageState` helpers in v0.1).
-- Real network throttling (synthetic Chromium CDP only, and not exposed in v0.1).
+- Authenticated routes (no `storageState` helpers shipped yet).
+- Real network throttling (synthetic Chromium CDP only, and not exposed via the config surface yet).
 - Real Android Chrome with real GPU and real touch.
 - Embedded webviews (Facebook in-app browser, Twitter card, etc.).
 - JavaScript bundle-size budgets.
 - Server-side rendering correctness beyond first paint.
-- Visual regression (coming in v0.2).
-- Real NVDA, JAWS, or VoiceOver (virtual SR only in v0.1; real NVDA in v0.2).
+- Visual regression (planned for v0.3).
+- JAWS and VoiceOver (NVDA only — Guidepup supports VoiceOver but preflight has not wired the macOS path yet).
 
 ---
 

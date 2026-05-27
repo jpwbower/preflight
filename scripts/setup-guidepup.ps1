@@ -38,11 +38,30 @@ Write-Host "preflight setup-guidepup: launching @guidepup/setup ..." -Foreground
 Write-Host "  expect: NVDA download, UAC elevation prompt, possible SmartScreen warning." -ForegroundColor DarkGray
 Write-Host ""
 
-# Defer to the installed @guidepup/setup binary. We don't shell to
-# `npx guidepup-setup` here because Windows PowerShell's npx wrapper
-# eats the exit code on some hosts; resolving the bin script directly
-# preserves it.
-& npx --no-install guidepup-setup @args
+# Resolve the @guidepup/setup bin script directly. The bin is named
+# `setup` (NOT `guidepup-setup`) which collides with too many other
+# package bins to be safe to invoke via npx by name — and on Windows
+# PowerShell hosts, the npx wrapper sometimes loses the exit code
+# anyway. Invoking the underlying script via `node` sidesteps both.
+#
+# Resolution order: consumer CWD first (consumer's own install of
+# @guidepup/setup as a devDep of their project), then preflight's
+# bundled copy (for the preflight maintainer running from a checkout).
+$candidates = @(
+    (Join-Path $PWD.Path 'node_modules\@guidepup\setup\bin\setup'),
+    (Join-Path (Resolve-Path -Path (Join-Path $PSScriptRoot '..')).Path 'node_modules\@guidepup\setup\bin\setup')
+)
+$setupBin = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $setupBin) {
+    Write-Host "preflight setup-guidepup: @guidepup/setup is not installed." -ForegroundColor Red
+    Write-Host "preflight ships @guidepup/setup as a devDep only — install it in your" -ForegroundColor Yellow
+    Write-Host "consuming project before running this script:" -ForegroundColor Yellow
+    Write-Host "" -ForegroundColor Yellow
+    Write-Host "    npm i -D @guidepup/setup @guidepup/guidepup @guidepup/playwright" -ForegroundColor White
+    Write-Host "" -ForegroundColor Yellow
+    exit 3
+}
+& node $setupBin @args
 $exit = $LASTEXITCODE
 
 if ($exit -ne 0) {

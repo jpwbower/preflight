@@ -90,6 +90,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     PREFLIGHT_NO_REUSE: args.noReuse ? '1' : '0',
     PREFLIGHT_VERBOSE: args.verbose ? '1' : '0',
     PREFLIGHT_SMOKE: args.smoke ? '1' : '0',
+    PREFLIGHT_RELEASE: args.release ? '1' : '0',
     // PREFLIGHT_VERSION is intentionally NOT forwarded — writeSummary in the
     // parent process takes the version directly, so the child does not need it.
   };
@@ -258,7 +259,9 @@ export interface ListOptions {
  */
 export function renderMatrix(opts: ListOptions): string {
   const cfg = applyRunFlagsToConfig(opts.rawConfig, opts.args);
-  const specs = ['smoke', 'a11y', 'keyboard', 'emulated-media', 'virtual-sr'];
+  const baseSpecs = ['smoke', 'a11y', 'keyboard', 'emulated-media', 'virtual-sr'];
+  const releaseSpecs = ['nvda', 'lighthouse', 'html-validate'];
+  const specs = opts.args.release ? [...baseSpecs, ...releaseSpecs] : baseSpecs;
   const rows: string[] = [];
   rows.push('preflight matrix:');
   rows.push(`  baseURL:    ${cfg.baseURL}`);

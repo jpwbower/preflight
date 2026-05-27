@@ -2,9 +2,11 @@ export type ReporterName = 'line' | 'list' | 'html' | 'json' | 'junit';
 export type EngineFlag = 'chromium' | 'firefox' | 'webkit';
 
 export interface ParsedArgs {
-  command: 'run' | 'init' | 'list' | 'help' | 'version';
+  command: 'run' | 'init' | 'list' | 'help' | 'version' | 'links';
   // run-mode flags
   smoke: boolean;
+  release: boolean;
+  links: boolean;
   ci: boolean;
   headed: boolean;
   debug: boolean;
@@ -25,6 +27,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = {
     command: 'run',
     smoke: false,
+    release: false,
+    links: false,
     ci: false,
     headed: false,
     debug: false,
@@ -53,6 +57,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
       args.command = 'version';
     } else if (a === '--smoke') {
       args.smoke = true;
+    } else if (a === '--release') {
+      args.release = true;
+    } else if (a === '--links') {
+      args.links = true;
+      // --links promotes the run to the dedicated links command — it
+      // bypasses Playwright entirely and shells out to lychee.
+      if (args.command === 'run') args.command = 'links';
     } else if (a === '--ci') {
       args.ci = true;
     } else if (a === '--headed') {
@@ -100,11 +111,23 @@ export function helpText(): string {
     '',
     'USAGE',
     '  preflight                    full default suite',
+    '  preflight --smoke            single-engine smoke (chromium + mobile-375)',
+    '  preflight --release          full + nvda + lighthouse + html-validate',
+    '  preflight --links            lychee link check (standalone, no Playwright)',
     '  preflight init [--force]     drop starter preflight.config.ts',
+    '  preflight init --ci          additionally drop .github/workflows/preflight.yml',
     '  preflight list               print engine x viewport x spec matrix; do not run',
+    '',
+    'CADENCE',
+    '  --smoke       per-commit (fast, chromium-only)',
+    '  (default)     PR-open (full engine x viewport matrix)',
+    '  --release     pre-tag (adds nvda Windows-only, lighthouse chromium-only, html-validate)',
+    '  --links       nightly (lychee against the consumer-built site / config)',
     '',
     'FLAGS',
     '  --smoke                      chromium-only, mobile-375 viewport, smoke + a11y smoke',
+    '  --release                    add nvda + lighthouse + html-validate to the default suite',
+    '  --links                      run lychee link checker only (skips Playwright)',
     '  --list                       alias for the `list` subcommand',
     '  --only=<route>               scope to one configured route (matches route.name)',
     '  --engine=<name>              chromium | firefox | webkit',
@@ -114,9 +137,10 @@ export function helpText(): string {
     '  --update-snapshots, -u       Playwright snapshot update passthrough',
     '  --reporter=<name>            line | list | html | json | junit',
     '  --config=<path>              override config discovery',
-    '  --ci                         strict defaults: html + junit reporters, fail on warnings, no reuseExistingServer',
+    '  --ci                         (run) strict reporters + fail-on-warning + no reuseExistingServer',
+    '  --ci                         (init) additionally drop .github/workflows/preflight.yml',
     '  --no-reuse                   force a fresh webServer launch',
-    '  --force, -f                  (init) overwrite an existing preflight.config.ts',
+    '  --force, -f                  (init) overwrite existing files',
     '  --help, -h                   show this message',
     '  --version, -V                print preflight version',
     '',

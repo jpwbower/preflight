@@ -139,8 +139,41 @@ async function cmdInit(parsed, consumerCwd) {
   }
   await copyFile(tplSrc, dest);
   process.stdout.write(`preflight init: wrote ${dest}\n`);
+
+  if (parsed.ci) {
+    const ghaSrc = path.join(__dirname, '..', 'templates', 'preflight.gha.yml.tpl');
+    const ghaDestDir = path.join(consumerCwd, '.github', 'workflows');
+    const ghaDest = path.join(ghaDestDir, 'preflight.yml');
+    if (existsSync(ghaDest) && !parsed.force) {
+      process.stderr.write(
+        `preflight init --ci: ${ghaDest} already exists. Re-run with --force to overwrite.\n`
+      );
+      return EXIT.CONFIG_ERROR;
+    }
+    if (!existsSync(ghaSrc)) {
+      process.stderr.write(
+        `preflight init --ci: GHA template missing at ${ghaSrc}. Reinstall preflight.\n`
+      );
+      return EXIT.RUNTIME_ERROR;
+    }
+    await mkdir(ghaDestDir, { recursive: true });
+    await copyFile(ghaSrc, ghaDest);
+    process.stdout.write(`preflight init: wrote ${ghaDest}\n`);
+  }
+
   process.stdout.write('Edit baseURL, routes, and webServer for your project, then run `npx preflight --smoke`.\n');
   return EXIT.OK;
+}
+
+async function cmdLinks(parsed, consumerCwd, resolvedConfig, preflightVersion) {
+  const mod = require_('../dist/links/runLychee.js');
+  const result = await mod.runLychee({
+    consumerCwd,
+    config: resolvedConfig,
+    verbose: parsed.verbose,
+    preflightVersion,
+  });
+  return result.exitCode;
 }
 
 async function main() {
@@ -249,6 +282,21 @@ async function main() {
     const { renderMatrix } = require_('../dist/cli/runner.js');
     process.stdout.write(renderMatrix({ rawConfig: resolved, args: parsed }) + '\n');
     return EXIT.OK;
+  }
+
+  if (parsed.command === 'links') {
+    try {
+      return await cmdLinks(parsed, consumerCwd, resolved, version);
+    } catch (err) {
+      if (err && (err.name === 'EnvError' || err.code === 'ENV_ERROR')) {
+        process.stderr.write(`preflight: ${err.message}\n`);
+        return EXIT.ENV_ERROR;
+      }
+      process.stderr.write(
+        `preflight --links: ${err && err.stack ? err.stack : String(err)}\n`
+      );
+      return EXIT.RUNTIME_ERROR;
+    }
   }
 
   // command === 'run'

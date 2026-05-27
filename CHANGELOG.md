@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
+Adds the install-risk-surface features deferred from v0.1: real NVDA,
+Lighthouse budgets, html-validate, lychee link-check, and a CI workflow
+template. Two new cadences (`--release`, `--links`) keep the heavier
+work off the per-push hot path.
+
+### Added
+
+- `--release` flag: runs the default suite PLUS real-NVDA (via Guidepup,
+  Windows-only), Lighthouse perf/a11y/best-practices/seo budgets
+  (Chromium-only), and html-validate strict markup linting. Each new
+  spec gates itself on platform / engine / project so a single-shot
+  `--release` does not multiply across the full engine x viewport matrix.
+- `--links` flag: shells out to the lychee CLI for link checking,
+  standalone (does not run Playwright at all). Respects a
+  `lychee.toml` in the consumer project root.
+- `preflight init --ci`: additionally drops a starter
+  `.github/workflows/preflight.yml` covering all four cadences
+  (smoke per-push, full on PR, release on tag, links nightly).
+- `lighthouseThresholds` config field with documented defaults
+  (perf 75, a11y 95, best-practices 85, seo 90). Per-category override.
+- `scripts/setup-guidepup.ps1`: wrapper around `@guidepup/setup` for
+  Windows hosts, with documented cold-install caveats and a fallback
+  to the consumer's installed copy.
+- Five new README gotchas: Guidepup cold-install surface area, dev vs.
+  built-artefact for `--release`, ClearType subpixel hinting, cadence
+  discipline, `.preflight/last-run/` as the canonical CI artefact path.
+
+### Changed
+
+- README: optional v0.2 extras install section; CLI table now
+  includes `--release` / `--links` / `init --ci`; coverage matrix
+  now lists NVDA / Lighthouse / html-validate / lychee as shipping;
+  roadmap moved to v0.3.
+
+### Known limitations
+
+- Guidepup's downloaded NVDA build lives in `%TEMP%` — Storage Sense
+  can wipe it, leaving a stale HKCU pointer. Re-run setup.
+- Lighthouse spec launches its own browser (CDP requirement). It does
+  not honour `playwrightOverrides` for browser launch args.
+- html-validate runs against post-hydration HTML only; SSR-specific
+  markup bugs that only appear on the raw response body are missed.
+- lychee CLI is a separate install (not an npm package); preflight
+  shells to it from PATH.
+
 ## [0.1.0]
 
 Initial release. Local-only web-assurance scaffolding for any web project.
@@ -59,4 +106,5 @@ Initial release. Local-only web-assurance scaffolding for any web project.
 - `npx playwright install` downloads ~650 MB of browser binaries.
 
 [Unreleased]: https://example.com/CHANGELOG
+[0.2.0]: https://example.com/CHANGELOG#0-2-0
 [0.1.0]: https://example.com/CHANGELOG#0-1-0

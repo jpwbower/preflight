@@ -37,6 +37,19 @@ export interface PreflightAxeDisabled {
 }
 
 /**
+ * Lighthouse score thresholds for the `--release` cadence. Each value is
+ * the MINIMUM acceptable score (0–100). Categories above the threshold
+ * pass; below fails. Defaults: perf 75, a11y 95, best-practices 85, seo 90.
+ */
+export interface PreflightLighthouseThresholds {
+  performance?: number;
+  accessibility?: number;
+  'best-practices'?: number;
+  seo?: number;
+  pwa?: number;
+}
+
+/**
  * Consumer-facing configuration. Authored as preflight.config.ts in the
  * consuming project root.
  */
@@ -96,6 +109,12 @@ export interface PreflightConfig {
   timezoneId?: string;
 
   /**
+   * Lighthouse score thresholds. Only consulted on `--release`. If unset,
+   * preflight uses perf 75, a11y 95, best-practices 85, seo 90.
+   */
+  lighthouseThresholds?: PreflightLighthouseThresholds;
+
+  /**
    * Escape hatch for advanced consumers — extra Playwright config merged
    * into the generated config last. Use sparingly; preflight may override.
    */
@@ -116,5 +135,6 @@ export interface ResolvedPreflightConfig {
   readyMarker?: string;
   locale: string;
   timezoneId: string;
+  lighthouseThresholds?: PreflightLighthouseThresholds;
   playwrightOverrides?: Partial<PlaywrightTestConfig>;
 }
