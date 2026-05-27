@@ -7,6 +7,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0]
+
+Adds the two highest-leverage v0.3 deliverables: visual regression
+(opt-in `--visual` cadence) and authenticated-route helpers
+(`storageState` lifecycle). Also generalises Lighthouse thresholds
+per-route. macOS VoiceOver and consumer-registered release-only specs
+deferred to v0.4+.
+
+### R5 remediation (post-reviewer)
+
+- Lighthouse spec now honours `cfg.auth.storageState` — without this
+  patch, the spec's own browser launch (CDP requirement) ignored
+  Playwright's project-level `use.storageState`, so an authenticated
+  route would have redirected to /login during `--release` and
+  Lighthouse would have scored the login page.
+- `--visual` testMatch/testIgnore gate is now applied AFTER any
+  `playwrightOverrides` spread, so a consumer with custom
+  `testMatch` (e.g. to register a project-side spec) cannot silently
+  break the visual cadence.
+- `--visual` + `--smoke` / `--visual` + `--engine` / `--visual` +
+  `--release` are now hard-rejected at the CLI boundary with a
+  conflict message naming the incompatible flags, instead of producing
+  a silent-skip exit-0 run.
+- `defineConfig` rejects duplicate route names with a route-grouping
+  reason in the error — collisions would silently overwrite each
+  other's visual baselines.
+- `auth.setup` cache writes are now atomic (`.tmp` → rename) so
+  concurrent preflight runs against the same checkout can't interleave
+  a half-written JSON file.
+- `auth.setup` modules without a default export get a targeted error
+  naming the named exports they have and the exact code change to
+  make. Previously the error read "must export a default async
+  function ... Got: object" — confusing because the named function
+  WAS present.
+- Non-JSON-serialisable storageState (BigInt cookie expiries, circular
+  refs) now surfaces with a consumer-actionable EnvError instead of an
+  opaque V8 TypeError.
+- `--engine=safari` / `--reporter=junitxml` (typos / wrong values) are
+  rejected at parseArgs with `unknown argument` instead of producing a
+  confusing "no project found" deep in Playwright.
+- `webServer.cwd` is pre-resolved in the runner so playwright.config.ts
+  no longer depends on `process.cwd()` semantics; fixes a latent v0.1
+  bug where consumers with a webServer (not webServer:false) would have
+  had the server cwd silently default to `node_modules/preflight/dist/`
+  instead of their project root.
+
+### Added
+
+- `--visual` cadence: runs only `visual.spec.ts` on one project
+  (default `chromium__desktop-1280`, override via `cfg.visualProject`).
+  Uses Playwright's `toHaveScreenshot()` with `maxDiffPixelRatio`
+  controlled by `cfg.visualThreshold` (default 0.01). Baselines are
+  consumer-managed — preflight ships none. README documents the
+  Windows ClearType escape hatch with a worked `snapshotPathTemplate`
+  recipe encoding `os.release()` so each Windows build keys its own
+  baseline tree.
+- `cfg.auth` field: setup module produces a Playwright `storageState`,
+  preflight caches it to `.preflight/auth/storageState.json` (override
+  via `auth.storageStatePath`), expires per `auth.expirySeconds`, and
+  wires the path into every project's `use.storageState`. `--no-auth`
+  bypasses setup for a single run.
+- `preflight teardown` subcommand: invokes `cfg.auth.teardown` (if
+  set) and deletes the cached storageState. Safety net for the v0.1
+  carry-forward "storageState reuse will break tests" gotcha.
+- `PreflightRoute.lighthouseThresholds`: per-route override layered on
+  top of suite-wide thresholds, per-category. Partially addresses the
+  v0.2 "Lighthouse defaults assume ship-gate" known-issue.
+- `summary.json` `cadence` discriminator now includes `'visual'`
+  alongside `'smoke' | 'full' | 'release' | 'links'`.
+- Six new README sections: per-route Lighthouse override, auth setup
+  walkthrough, visual cadence + `--visual` capture/compare workflow,
+  Windows ClearType escape hatch worked example, `--no-auth` /
+  `preflight teardown` documentation, v0.4+ roadmap (VoiceOver,
+  network throttling, consumer-registered release specs).
+
+### Changed
+
+- README: coverage matrix now lists visual regression as shipping and
+  authenticated routes as shipping; v0.3 roadmap → v0.4+ roadmap.
+- CLI help text adds `--visual`, `--no-auth`, `teardown` subcommand.
+
+### Known limitations
+
+- Visual baselines default to `node_modules/preflight/dist/specs/`
+  (Playwright's default sibling-of-spec location), which is destroyed
+  on `npm install`. Consumers MUST set
+  `playwrightOverrides.snapshotPathTemplate` to a path within their
+  own repo. README documents this.
+- `auth.setup` runs in the parent runner process before the Playwright
+  child is spawned — if the setup module imports heavy dependencies,
+  preflight startup latency increases.
+- `auth.storageStatePath` and `auth.setup` are not path-sandboxed; a
+  consumer-authored config can read/write outside the project root
+  (their own machine, their choice). Documented as such.
+- `--release` workers:1 single-threading unchanged from v0.2 (NVDA
+  foreground-app constraint).
+- NVDA `spokenPhraseLog()` still empty on Guidepup's silent driver —
+  spec captures phrases as a soft artefact rather than asserting on
+  them. Unchanged from v0.2.
+- lychee minimum-version diagnostic deferred to v0.4 (carry-forward
+  from v0.2 known-issues).
+- html-validate post-hydration-only behaviour unchanged from v0.2.
+
 ## [0.2.0]
 
 Adds the install-risk-surface features deferred from v0.1: real NVDA,
@@ -136,5 +239,6 @@ Initial release. Local-only web-assurance scaffolding for any web project.
 - `npx playwright install` downloads ~650 MB of browser binaries.
 
 [Unreleased]: https://example.com/CHANGELOG
+[0.3.0]: https://example.com/CHANGELOG#0-3-0
 [0.2.0]: https://example.com/CHANGELOG#0-2-0
 [0.1.0]: https://example.com/CHANGELOG#0-1-0

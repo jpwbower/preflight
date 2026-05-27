@@ -13,7 +13,7 @@ This is **scaffolding**, not magic. preflight catches a floor of common regressi
 Pin to a tag, not floating `main`:
 
 ```sh
-npm i -D github:<your-org>/preflight#v0.2.0
+npm i -D github:<your-org>/preflight#v0.3.0
 npx playwright install
 ```
 
