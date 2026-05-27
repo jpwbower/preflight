@@ -164,7 +164,7 @@ The four cadences exist so each test pays its wallclock cost at the right moment
 | `--smoke`      | every push             | < 60 s           | smoke + a11y smoke, chromium + mobile-375 only |
 | (default)      | PR open / push to main | 1–5 min          | full engine x viewport matrix of v0.1 specs |
 | `--release`    | pre-tag, before publish | 5–20 min         | full + NVDA (Windows) + Lighthouse (Chromium) + html-validate |
-| `--links`      | nightly cron           | depends on site  | lychee against the configured routes; no browser launch |
+| `--links`      | nightly cron           | depends on site  | lychee against the configured routes; no browser launch. v0.4 warns if lychee is older than 0.13.0. |
 | `--visual`     | opt-in (consumer choice) | depends on site | toHaveScreenshot per route on one project; baselines consumer-managed |
 
 ---
@@ -172,6 +172,69 @@ The four cadences exist so each test pays its wallclock cost at the right moment
 ## Gotchas
 
 These are the rough edges to know about before you wire preflight into CI.
+
+### v0.4 additions
+
+- **Network throttling via Chromium CDP (`networkPreset`).** v0.4 wires
+  Playwright's CDP `Network.emulateNetworkConditions` into smoke.spec
+  and a11y.spec, exposed as a top-level `networkPreset` config field.
+  Accepts a named preset (`'3g-slow' | '3g-fast' | '4g' | 'wifi'`) or a
+  custom `{ downloadKbps, uploadKbps, latencyMs }` object.
+
+  ```ts
+  export default defineConfig({
+    baseURL: 'http://127.0.0.1:3000',
+    routes: [{ name: 'home', path: '/' }],
+    webServer: false,
+    networkPreset: '3g-fast',
+  });
+  ```
+
+  **Chromium only.** Firefox / WebKit emit a one-time
+  `[preflight] networkPreset is Chromium-only; ignoring for $engine`
+  warning to stderr and run at full bandwidth — bandwidth doesn't
+  affect a11y / smoke signal strongly enough to justify a skip.
+
+  **Not wired into**: keyboard.spec (focus indicators don't depend on
+  bandwidth), emulated-media.spec (media queries don't depend on
+  bandwidth), virtual-sr.spec (sync DOM sweep), or lighthouse.spec
+  (Lighthouse runs its own simulated throttling for accurate perf
+  budgets — having two throttlers fight produces non-deterministic
+  scores).
+
+- **Consumer-registered release-only specs (`releaseOnlyPatterns`).**
+  v0.2 hardcoded preflight's built-in release-only spec list
+  (`nvda`, `lighthouse`, `html-validate`) — non-`chromium__desktop-1280`
+  projects ignore those files at the Playwright project level so they
+  never spawn a worker just to skip from inside the test body. v0.4
+  exposes `cfg.releaseOnlyPatterns?: string[]` so consumers can apply
+  the same gating to their own perf / a11y-deep / golden specs.
+
+  ```ts
+  releaseOnlyPatterns: ['**/my-perf.spec.js', '**/a11y-deep.spec.js'],
+  ```
+
+  **Caveat — testIgnore is matched against files discovered by
+  `testDir`.** preflight's `testDir` is its own bundled specs dir, so
+  `releaseOnlyPatterns` only fires against specs that ARE discoverable
+  there. For consumer specs in a separate root, use the
+  `PREFLIGHT_RELEASE === '1'` env signal in your own
+  `playwrightOverrides`:
+
+  ```ts
+  playwrightOverrides: {
+    projects: process.env.PREFLIGHT_RELEASE === '1'
+      ? undefined  // let release-only files load normally
+      : [{ testIgnore: ['**/my-perf.spec.ts'] }],
+  },
+  ```
+
+- **lychee version skew warning.** `--links` now spawns
+  `lychee --version` before the main sweep and warns to stderr if the
+  installed lychee is older than 0.13.0 — preflight uses
+  `--no-progress` / `--max-concurrency` / `--timeout` and older
+  builds may not support all three. Never blocks the run; parse
+  failure on the version string emits a softer warning and proceeds.
 
 ### v0.3 additions
 
@@ -346,11 +409,11 @@ These are the rough edges to know about before you wire preflight into CI.
 
 ---
 
-## What's coming in v0.4+
+## What's coming in v0.5+
 
-- macOS VoiceOver (Guidepup exposes the API; preflight has not wired the path yet — needs a Mac dev box in the validation loop)
-- Real network throttling (Chromium CDP, exposed as a config knob)
-- Consumer-registered release-only specs via project-level gating refactor
+- macOS VoiceOver (Guidepup exposes `voiceOverTest` mirroring `nvdaTest`; preflight has not wired the path yet — needs a Mac dev box in the validation loop)
+- SSR raw-response html-validate pass (currently runs against post-hydration DOM only)
+- Default `snapshotPathTemplate` for `--visual` so baselines land outside `node_modules/`
 
 ---
 
@@ -359,7 +422,7 @@ These are the rough edges to know about before you wire preflight into CI.
 Honest list, not optimistic:
 
 - Real iOS Safari behaviour (only Playwright WebKit, which is engine-close but not behaviour-identical).
-- Real network throttling (synthetic Chromium CDP only, and not exposed via the config surface yet).
+- Real network throttling (Chromium CDP only — accurate at the protocol layer, but not a physical-radio simulation; Firefox / WebKit run at full bandwidth).
 - Real Android Chrome with real GPU and real touch.
 - Embedded webviews (Facebook in-app browser, Twitter card, etc.).
 - JavaScript bundle-size budgets.

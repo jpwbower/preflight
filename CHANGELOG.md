@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0]
+
+Adds the three highest-leverage v0.4 deliverables: Chromium-CDP network
+throttling, consumer-registered release-only specs, and a lychee
+minimum-version diagnostic. macOS VoiceOver remains deferred (needs a
+Mac dev box in the validation loop); SSR raw-response html-validate and
+default `snapshotPathTemplate` deferred to v0.5+.
+
+### Added
+
+- `networkPreset` config field — applies Chromium DevTools Protocol
+  `Network.emulateNetworkConditions` to `smoke.spec` and `a11y.spec`.
+  Accepts a named preset (`'3g-slow' | '3g-fast' | '4g' | 'wifi'`) or
+  a custom `{ downloadKbps, uploadKbps, latencyMs }` object.
+  **Chromium-only** — firefox / webkit emit a one-time stderr warning
+  and proceed at full bandwidth. Not wired into keyboard / emulated-media
+  / virtual-sr (signal does not depend on bandwidth) or
+  `lighthouse.spec` (Lighthouse runs its own simulated throttling).
+
+- `releaseOnlyPatterns` config field — array of additional spec globs
+  appended to preflight's built-in release-only list (`nvda`,
+  `lighthouse`, `html-validate`). Receives the same project-level
+  `testIgnore` treatment: matched files are excluded from every
+  Playwright project except `chromium__desktop-1280`. Patterns are
+  matched against files discovered under preflight's `testDir`, so
+  consumer specs in a separate root must self-gate via
+  `process.env.PREFLIGHT_RELEASE === '1'` inside their own
+  `playwrightOverrides`.
+
+- `--links` now pre-flights `lychee --version` and warns to stderr if
+  the installed lychee is older than 0.13.0. preflight uses
+  `--no-progress`, `--max-concurrency`, and `--timeout`; older builds
+  may not support all three. Parse failure emits a softer warning and
+  proceeds — never blocks the run.
+
+### Carried forward (still applicable)
+
+- `--release` workers:1 single-threading (NVDA foreground-app constraint).
+- NVDA `spokenPhraseLog()` empty-string behaviour on silent-driver dev boxes.
+- Lighthouse free-port TOCTOU window (fix-pin via `PREFLIGHT_LIGHTHOUSE_PORT`).
+- example.com validation thin — network throttling validated locally
+  against scratch fixture for stronger wallclock signal.
+- Visual baselines default location, `--visual` sequential execution,
+  `auth.setup` parent-process import cost, `auth` paths not sandboxed,
+  `teardown` unconditional cache delete — all v0.3 carry-forwards
+  unchanged.
+
 ## [0.3.0]
 
 Adds the two highest-leverage v0.3 deliverables: visual regression
