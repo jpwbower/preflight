@@ -52,11 +52,20 @@ const isVisual = process.env.PREFLIGHT_VISUAL === '1';
  * just to immediately skip from inside the test body, and (critical for
  * NVDA) prevents the per-test `nvda` fixture from being constructed in
  * parallel across projects, which would race on Windows kernel hooks.
+ *
+ * Consumer-registered patterns via cfg.releaseOnlyPatterns are appended
+ * to this list — they get the same project-level testIgnore treatment.
+ * Note: testIgnore is matched against files DISCOVERED by testDir; see
+ * the field's JSDoc for the consumer-spec-out-of-testDir caveat.
  */
-const RELEASE_ONLY_SPECS = [
+const BUILT_IN_RELEASE_ONLY_SPECS = [
   '**/nvda.spec.js',
   '**/lighthouse.spec.js',
   '**/html-validate.spec.js',
+];
+const RELEASE_ONLY_SPECS = [
+  ...BUILT_IN_RELEASE_ONLY_SPECS,
+  ...(cfg.releaseOnlyPatterns ?? []),
 ];
 const RELEASE_SUPPORTED_PROJECT = 'chromium__desktop-1280';
 
