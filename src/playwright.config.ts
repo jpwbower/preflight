@@ -1,0 +1,130 @@
+import { defineConfig, devices, type PlaywrightTestConfig } from '@playwright/test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { EngineName, ResolvedPreflightConfig } from './types.js';
+import { buildViewportProfiles, type ViewportProfile } from './viewports.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * preflight forwards the consumer's resolved config as JSON via env. RegExp
+ * objects don't survive JSON round-trips, so consoleIgnore is serialised as
+ * { source, flags } pairs and reconstructed here.
+ */
+interface SerialisedRegExp {
+  source: string;
+  flags: string;
+}
+interface SerialisedConfig extends Omit<ResolvedPreflightConfig, 'consoleIgnore'> {
+  consoleIgnore: SerialisedRegExp[];
+}
+
+function loadConfigFromEnv(): ResolvedPreflightConfig {
+  const raw = process.env.PREFLIGHT_CONFIG_JSON;
+  if (!raw) {
+    throw new Error(
+      'preflight: PREFLIGHT_CONFIG_JSON is not set. This config file is intended ' +
+        'to be loaded by `bin/preflight.mjs`, not by `npx playwright test` directly.'
+    );
+  }
+  const parsed = JSON.parse(raw) as SerialisedConfig;
+  return {
+    ...parsed,
+    consoleIgnore: parsed.consoleIgnore.map((r) => new RegExp(r.source, r.flags)),
+  };
+}
+
+const cfg = loadConfigFromEnv();
+const profiles = buildViewportProfiles();
+const isCi = process.env.PREFLIGHT_CI === '1';
+
+const engineUseMap: Record<EngineName, ReturnType<typeof devices.valueOf> extends infer T ? T : never> = {
+  chromium: devices['Desktop Chrome']!,
+  firefox: devices['Desktop Firefox']!,
+  webkit: devices['Desktop Safari']!,
+};
+
+function buildProjects(): PlaywrightTestConfig['projects'] {
+  const projects: NonNullable<PlaywrightTestConfig['projects']> = [];
+  for (const engine of cfg.engines) {
+    const engineUse = engineUseMap[engine];
+    for (const vpName of cfg.viewports) {
+      const profile: ViewportProfile = profiles[vpName];
+      projects.push({
+        name: `${engine}__${vpName}`,
+        use: {
+          ...engineUse,
+          baseURL: cfg.baseURL,
+          locale: cfg.locale,
+          timezoneId: cfg.timezoneId,
+          viewport: profile.viewport,
+          deviceScaleFactor: profile.deviceScaleFactor,
+          isMobile: profile.isMobile,
+          hasTouch: profile.hasTouch,
+          ...(profile.userAgent ? { userAgent: profile.userAgent } : {}),
+        },
+        metadata: {
+          engine,
+          viewport: vpName,
+        },
+      });
+    }
+  }
+  return projects;
+}
+
+const config: PlaywrightTestConfig = defineConfig({
+  testDir: path.join(__dirname, 'specs'),
+  // We compile .ts → .js, so the published surface matches .spec.js
+  testMatch: ['**/*.spec.js'],
+
+  fullyParallel: true,
+  forbidOnly: isCi,
+  retries: isCi ? 2 : 0,
+  workers: isCi ? 2 : undefined,
+  reporter: isCi
+    ? [
+        ['list'],
+        ['html', { open: 'never', outputFolder: process.env.PREFLIGHT_HTML_REPORT_DIR }],
+        ['junit', { outputFile: process.env.PREFLIGHT_JUNIT_FILE }],
+        ['json', { outputFile: process.env.PREFLIGHT_JSON_FILE }],
+      ]
+    : [
+        [process.env.PREFLIGHT_REPORTER ?? 'list'],
+        ['html', { open: 'never', outputFolder: process.env.PREFLIGHT_HTML_REPORT_DIR }],
+        ['json', { outputFile: process.env.PREFLIGHT_JSON_FILE }],
+      ],
+
+  use: {
+    baseURL: cfg.baseURL,
+    locale: cfg.locale,
+    timezoneId: cfg.timezoneId,
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
+
+  outputDir: process.env.PREFLIGHT_TEST_RESULTS_DIR,
+
+  projects: buildProjects(),
+
+  webServer:
+    cfg.webServer === false
+      ? undefined
+      : {
+          command: cfg.webServer.command,
+          url: cfg.webServer.url,
+          port: cfg.webServer.port,
+          cwd: cfg.webServer.cwd,
+          timeout: cfg.webServer.timeout ?? 120_000,
+          env: cfg.webServer.env,
+          reuseExistingServer: !isCi && process.env.PREFLIGHT_NO_REUSE !== '1',
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+
+  ...(cfg.playwrightOverrides ?? {}),
+});
+
+export default config;
