@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0]
+
+Adds CI for preflight's own repo and clears the operator-decide
+carry-forward: the maintainer has no Mac dev box in the validation
+loop and no plans to add one, so VoiceOver moves from "deferred,
+re-ask next chunk" to "documented future work without committed
+cadence". preflight is at a stable resting state as of this tag.
+
+### Added
+
+- `.github/workflows/ci.yml` gating `main` and PRs. Builds the
+  TypeScript, packs the tarball, installs into a fresh scratch dir
+  next to `@playwright/test` (peerDep), installs Chromium (cached),
+  and runs `npx preflight --smoke --ci` against a static fixture
+  under `ci/fixture/`. Matrix: `ubuntu-latest` + `windows-latest` for
+  smoke; `macos-latest` runs build-only (compile-clean signal; no
+  smoke without a Mac dev box). On smoke failure, uploads
+  `.preflight/last-run/` as a 7-day artefact.
+
+- `ci/fixture/index.html` — minimal deterministic page used by the
+  CI smoke job. Valid markup, focusable elements, no axe violations
+  under the default ruleset. Consumers can read it as a reference
+  for what a smoke-passing page looks like.
+
+### Changed
+
+- No consumer-facing API changes. v0.6 is repo-internal
+  release-quality work — future regressions in the published tarball
+  surface at PR time rather than at consumer install time.
+
 ## [0.5.0]
 
 Adds two carry-forward closures from v0.3/v0.4 and a Windows

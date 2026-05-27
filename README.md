@@ -173,6 +173,23 @@ The four cadences exist so each test pays its wallclock cost at the right moment
 
 These are the rough edges to know about before you wire preflight into CI.
 
+### v0.6 additions
+
+- **GitHub Actions CI for preflight itself.** The repo now has its
+  own `.github/workflows/ci.yml` gating `main` and PRs. On every
+  push: TypeScript compiles, the tarball packs, installs into a
+  fresh scratch dir as a sibling of `@playwright/test`, and
+  `npx preflight --smoke` runs against a static fixture under
+  `ci/fixture/`. Matrix runs on `ubuntu-latest` + `windows-latest`;
+  a separate `macos-latest` job builds + packs (no smoke — no Mac
+  dev box in the validation loop) to catch any accidental
+  Linux/Windows-only API use.
+
+  No consumer-facing API change in v0.6 — this is repo-internal
+  release-quality work. Future regressions in the published tarball
+  or in the smoke / a11y specs should now surface at PR time
+  instead of at the next consumer install.
+
 ### v0.5 additions
 
 - **SSR raw-response html-validate pass (`cfg.htmlValidateRaw`).** Closes
@@ -473,11 +490,17 @@ These are the rough edges to know about before you wire preflight into CI.
 
 ---
 
-## What's coming in v0.6+
+## Future work (no committed cadence)
 
-- macOS VoiceOver (Guidepup exposes `voiceOverTest` mirroring `nvdaTest`; preflight has not wired the path yet — needs a Mac dev box in the validation loop)
-- Cross-worker dedupe of the per-worker `networkPreset` warn-once message (currently fires up to ~10x per run on non-Chromium engines)
-- NVDA `spokenPhraseLog()` empty-string fix once a host with visible NVDA is available for validation
+The maintainer does not have a macOS dev box in the validation loop
+and has no plans to add one in the foreseeable future. The items
+below are documented for anyone who picks up the repo with the
+required hardware; preflight is otherwise at a stable resting state
+as of v0.6.
+
+- macOS VoiceOver (Guidepup exposes `voiceOverTest` mirroring `nvdaTest`; the v0.2 `nvda.spec.ts` shape is the template — lazy import behind a `process.platform === 'darwin'` gate + project-level testIgnore + soft assertion on phrase content)
+- Cross-worker dedupe of the per-worker `networkPreset` warn-once message (would require IPC; currently fires up to ~10x per run on non-Chromium engines — acceptable noise floor)
+- NVDA `spokenPhraseLog()` empty-string fix (needs a host with audibly-running NVDA in the validation loop; currently swallowed via soft assertion)
 
 ---
 
