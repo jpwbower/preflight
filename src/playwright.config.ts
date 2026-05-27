@@ -208,7 +208,11 @@ const config: PlaywrightTestConfig = defineConfig({
           command: cfg.webServer.command,
           url: cfg.webServer.url,
           port: cfg.webServer.port,
-          cwd: cfg.webServer.cwd,
+          // Default to the consumer's project root, NOT preflight/dist (which
+          // is what Playwright would otherwise infer from the config file's
+          // location). The runner spawns the Playwright child with
+          // cwd=consumerCwd, so process.cwd() here is the consumer's root.
+          cwd: cfg.webServer.cwd ?? process.cwd(),
           timeout: cfg.webServer.timeout ?? 120_000,
           env: cfg.webServer.env,
           reuseExistingServer: !isCi && process.env.PREFLIGHT_NO_REUSE !== '1',
