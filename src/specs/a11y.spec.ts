@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import AxeBuilder from '@axe-core/playwright';
+import { AxeBuilder } from '@axe-core/playwright';
+import type { AxeResults, Result, NodeResult } from 'axe-core';
 import { loadPreflightConfig } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
@@ -30,21 +31,21 @@ test.describe('a11y (axe-core, WCAG 2.0/2.1/2.2 A+AA)', () => {
         builder = builder.disableRules(disabledRuleNames);
       }
 
-      const results = await builder.analyze();
+      const results: AxeResults = await builder.analyze();
 
       // Split known-noisy color-contrast hits on background-image elements
       // into a separate bucket. At smoke level we report-but-don't-fail —
       // axe routinely false-positives here because it can't sample the
       // actual pixel under the text.
-      const colorContrastOverImage: typeof results.violations = [];
-      const realViolations: typeof results.violations = [];
+      const colorContrastOverImage: Result[] = [];
+      const realViolations: Result[] = [];
 
       for (const v of results.violations) {
         if (v.id !== 'color-contrast') {
           realViolations.push(v);
           continue;
         }
-        const nodesOverImage = v.nodes.filter((n) =>
+        const nodesOverImage = v.nodes.filter((n: NodeResult) =>
           n.any.some(
             (chk) =>
               chk.id === 'color-contrast' &&
@@ -64,7 +65,7 @@ test.describe('a11y (axe-core, WCAG 2.0/2.1/2.2 A+AA)', () => {
 
       if (colorContrastOverImage.length > 0) {
         const summary = colorContrastOverImage
-          .flatMap((v) => v.nodes.map((n) => `  - ${n.target.join(' ')}`))
+          .flatMap((v: Result) => v.nodes.map((n: NodeResult) => `  - ${n.target.join(' ')}`))
           .join('\n');
         // Use test.info().annotations so the report shows the soft-warning.
         test.info().annotations.push({
@@ -75,9 +76,9 @@ test.describe('a11y (axe-core, WCAG 2.0/2.1/2.2 A+AA)', () => {
 
       const message = realViolations
         .map(
-          (v) =>
+          (v: Result) =>
             `${v.id} (${v.impact ?? 'n/a'}): ${v.help}\n${v.nodes
-              .map((n) => `    target: ${n.target.join(' ')}`)
+              .map((n: NodeResult) => `    target: ${n.target.join(' ')}`)
               .join('\n')}`
         )
         .join('\n');

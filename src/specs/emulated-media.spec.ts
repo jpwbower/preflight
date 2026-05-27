@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import AxeBuilder from '@axe-core/playwright';
+import { AxeBuilder } from '@axe-core/playwright';
+import type { Result } from 'axe-core';
 import { loadPreflightConfig } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
@@ -35,7 +36,7 @@ test.describe('emulated media', () => {
         .withTags(WCAG_TAGS)
         .disableRules(cfg.axeDisabled.map((d) => d.rule))
         .analyze();
-      const real = results.violations.filter((v) => v.id !== 'color-contrast'); // contrast handled in main a11y spec
+      const real = results.violations.filter((v: Result) => v.id !== 'color-contrast'); // contrast handled in main a11y spec
       expect(real, `axe violations under ${scheme} mode`).toEqual([]);
     });
   }
@@ -75,7 +76,7 @@ test.describe('emulated media', () => {
       .analyze();
     // Forced-colors mode disables custom colours — axe rules around
     // contrast become noisy; we only flag NON-contrast violations.
-    const real = results.violations.filter((v) => v.id !== 'color-contrast');
+    const real = results.violations.filter((v: Result) => v.id !== 'color-contrast');
     expect(real, 'axe violations under forced-colors').toEqual([]);
   });
 
