@@ -1,0 +1,134 @@
+# preflight's own CI. Gates main + PRs.
+#
+# What it proves on every push:
+#   1. TypeScript compiles cleanly (`npm run build`).
+#   2. The packed tarball installs into a fresh project as a sibling
+#      of @playwright/test (the peerDep shape that consumers use).
+#   3. `npx preflight --smoke` against a static fixture runs the
+#      smoke / a11y / keyboard / emulated-media / virtual-sr specs
+#      end-to-end on chromium__mobile-375, in CI conditions, on both
+#      Linux and Windows runners.
+#
+# Scope intentionally narrow:
+#   - No --release: NVDA needs a Windows runner WITH NVDA visible
+#     (Guidepup's setup script registers it in %TEMP%, but the audio
+#     subsystem on hosted runners doesn't give NVDA something to
+#     speak to, and the foreground-app requirement collides with
+#     headless Chromium). Lighthouse needs a real Chromium with a
+#     real port; it would work but the wallclock isn't worth the
+#     budget on every push.
+#   - No --links: lychee is a separate install + the link surface of
+#     the CI fixture is one self-link, which proves nothing.
+#   - No --visual: baselines drift across Playwright versions / OS
+#     updates faster than we'd want to maintain them in this repo.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install + build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Pack tarball
+        id: pack
+        shell: bash
+        run: |
+          tarball="$(npm pack --silent)"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "Packed: $tarball"
+
+      - name: Set up scratch dir + install packed tarball
+        shell: bash
+        run: |
+          mkdir -p _ci_scratch
+          cp ci/preflight.smoke.config.ts _ci_scratch/preflight.config.ts
+          cp -r ci/fixture _ci_scratch/fixture
+          cd _ci_scratch
+          # No package-lock.json here — generate a minimal package.json
+          # so npm install has somewhere to put node_modules. The
+          # tarball install pulls preflight as a real dep + we add
+          # @playwright/test (peerDep) and http-server (used by the
+          # webServer in preflight.smoke.config.ts).
+          #
+          # `type: module` is load-bearing: preflight is ESM-only
+          # (its own package.json sets type:module + exports only
+          # point to dist/index.js under "import"). A consumer
+          # package.json defaulted to "commonjs" by `npm init -y`
+          # cannot resolve `from 'preflight'` and tsx surfaces the
+          # `No "exports" main defined` error.
+          npm init -y >/dev/null
+          npm pkg set type=module
+          npm install --no-save \
+            "../${{ steps.pack.outputs.tarball }}" \
+            @playwright/test@^1.50.0 \
+            http-server@^14.1.1
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/AppData/Local/ms-playwright
+          # Cache key includes the packed tarball name so a version
+          # bump invalidates; includes OS so Linux and Windows caches
+          # don't collide.
+          key: playwright-${{ runner.os }}-${{ steps.pack.outputs.tarball }}
+
+      - name: Install Chromium browser
+        shell: bash
+        working-directory: _ci_scratch
+        run: npx playwright install chromium
+
+      - name: Run preflight --smoke
+        shell: bash
+        working-directory: _ci_scratch
+        run: npx preflight --smoke --ci
+
+      - name: Upload last-run artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-last-run-${{ matrix.os }}
+          path: _ci_scratch/.preflight/last-run/
+          retention-days: 7
+
+  build-only:
+    # macOS-build smoke: confirms the TS compile and the published
+    # tarball shape don't accidentally depend on Linux- or Windows-
+    # only APIs. No browser smoke run (no Mac dev box in the
+    # validation loop), but a compile-clean signal is cheap.
+    name: build-only (macos)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - run: npm pack --silent

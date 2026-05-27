@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>preflight CI fixture</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        background: #ffffff;
+        color: #111111;
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      a { color: #1a4fd6; }
+      a:focus, button:focus { outline: 3px solid #1a4fd6; outline-offset: 2px; }
+      button {
+        padding: 0.5rem 1rem;
+        background: #1a4fd6;
+        color: #ffffff;
+        border: 0;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #111111; color: #f5f5f5; }
+        a { color: #7aa7ff; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>preflight CI fixture</h1>
+    </header>
+    <main>
+      <p>
+        Tiny deterministic page exercised by preflight's own CI workflow on
+        every push. Designed to pass <code>--smoke</code>: valid markup,
+        no axe violations, has a tab-walkable element, no console errors,
+        respects <code>prefers-color-scheme</code>.
+      </p>
+      <p>
+        Linked: <a href="#main-action">jump to main action</a>.
+      </p>
+      <p>
+        <button id="main-action" type="button">Primary action</button>
+      </p>
+    </main>
+    <footer>
+      <p><small>preflight CI fixture &mdash; static HTML, no JavaScript.</small></p>
+    </footer>
+  </body>
+</html>
