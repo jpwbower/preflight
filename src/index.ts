@@ -15,6 +15,7 @@ export type {
   PreflightWebServer,
   PreflightAxeDisabled,
   PreflightLighthouseThresholds,
+  PreflightAuth,
   EngineName,
   ViewportName,
   ResolvedPreflightConfig,

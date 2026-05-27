@@ -7,10 +7,18 @@ export type ViewportName = 'mobile-320' | 'mobile-375' | 'tablet-768' | 'desktop
 /**
  * One route under test. `name` is used in test titles + report grouping.
  * `path` is appended to the consumer's baseURL.
+ *
+ * `lighthouseThresholds`, if set, overrides the suite-wide thresholds for
+ * this route only — merged per-category so omitted fields fall back to
+ * the suite-wide value (and then to the defaults). Use this to relax
+ * perf on a heavy dashboard route without lowering the floor for the
+ * whole site, or to tighten a11y on a landing page where the budget
+ * justifies a higher bar.
  */
 export interface PreflightRoute {
   name: string;
   path: string;
+  lighthouseThresholds?: PreflightLighthouseThresholds;
 }
 
 /**
@@ -53,6 +61,27 @@ export interface PreflightLighthouseThresholds {
   seo?: number;
   /** @deprecated PWA category is gated behind experimental presets in Lighthouse 12+. */
   pwa?: number;
+}
+
+/**
+ * Auth lifecycle hooks. `setup` is the path (relative to the consumer's
+ * project root, or absolute) of a JS/TS module that returns a Playwright
+ * storageState object — preflight imports it, calls its default export,
+ * caches the returned state, and wires it into every project's
+ * `use.storageState`. `teardown`, if set, runs after the suite finishes
+ * and on the explicit `preflight teardown` subcommand.
+ *
+ * `storageStatePath` is where the captured state is persisted between
+ * runs; default `.preflight/auth/storageState.json` under the consumer's
+ * cwd. `expirySeconds`, if set, forces a re-run of `setup` when the
+ * cached state is older than that age — useful for short-lived session
+ * tokens.
+ */
+export interface PreflightAuth {
+  setup: string;
+  teardown?: string;
+  storageStatePath?: string;
+  expirySeconds?: number;
 }
 
 /**
@@ -116,9 +145,36 @@ export interface PreflightConfig {
 
   /**
    * Lighthouse score thresholds. Only consulted on `--release`. If unset,
-   * preflight uses perf 75, a11y 95, best-practices 85, seo 90.
+   * preflight uses perf 75, a11y 95, best-practices 85, seo 90. Per-route
+   * overrides via `PreflightRoute.lighthouseThresholds` take precedence
+   * over this suite-wide value (merged per-category).
    */
   lighthouseThresholds?: PreflightLighthouseThresholds;
+
+  /**
+   * Visual regression settings. Only consulted on `--visual`. The visual
+   * spec runs `expect(page).toHaveScreenshot()` for each route on a
+   * single project (default `chromium__desktop-1280`). Baselines are
+   * managed by the consumer — preflight ships none. See README for the
+   * Windows ClearType escape hatch (`snapshotPathTemplate`).
+   *
+   * `visualProject` selects which engine__viewport project the visual
+   * spec runs on; defaults to `chromium__desktop-1280`. Any value that
+   * does not match one of the generated project names skips the spec
+   * loudly.
+   *
+   * `visualThreshold` is the maxDiffPixelRatio passthrough — 0.0 means
+   * exact match, 1.0 means tolerate any change. Default 0.01.
+   */
+  visualProject?: string;
+  visualThreshold?: number;
+
+  /**
+   * Authenticated-route lifecycle. Set to wire a setup hook that
+   * produces a storageState (cookies + localStorage), which preflight
+   * caches and passes to every Playwright project.
+   */
+  auth?: PreflightAuth;
 
   /**
    * Escape hatch for advanced consumers — extra Playwright config merged
@@ -142,5 +198,8 @@ export interface ResolvedPreflightConfig {
   locale: string;
   timezoneId: string;
   lighthouseThresholds?: PreflightLighthouseThresholds;
+  visualProject?: string;
+  visualThreshold?: number;
+  auth?: PreflightAuth;
   playwrightOverrides?: Partial<PlaywrightTestConfig>;
 }
