@@ -1,11 +1,16 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm, symlink, stat, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import type { ParsedArgs } from './parseArgs.js';
-import type { ResolvedPreflightConfig, EngineName, ViewportName } from '../types.js';
+import type {
+  ResolvedPreflightConfig,
+  EngineName,
+  ViewportName,
+  PreflightAuth,
+} from '../types.js';
 import { ALL_VIEWPORTS } from '../viewports.js';
 import { DEFAULT_CONSOLE_IGNORE } from '../console-ignore-defaults.js';
 import { writeDisabledRulesArtefact } from '../report/disabled-rules.js';
@@ -65,6 +70,22 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   await rm(lastRunDir, { recursive: true, force: true });
   await mkdir(lastRunDir, { recursive: true });
 
+  // Auth lifecycle: if cfg.auth is set and --no-auth was not passed, run
+  // the consumer's setup module (or reuse a cached storageState that is
+  // still within its expiry window). The resolved path is forwarded to
+  // playwright.config.ts via PREFLIGHT_CONFIG_JSON so every project's
+  // use.storageState picks it up.
+  let storageStatePath: string | undefined;
+  if (cfg.auth && !args.noAuth) {
+    try {
+      storageStatePath = await ensureAuthStorageState(cfg.auth, consumerCwd, args.verbose);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[preflight] auth setup failed: ${msg}\n`);
+      return { exitCode: 4 };
+    }
+  }
+
   const htmlReportDir = path.join(lastRunDir, 'html-report');
   const junitFile = path.join(lastRunDir, 'junit.xml');
   const jsonFile = path.join(lastRunDir, 'results.json');
@@ -78,6 +99,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const serialised = {
     ...cfg,
     consoleIgnore: consoleIgnoreCombined.map((r) => ({ source: r.source, flags: r.flags })),
+    storageStatePath,
   };
 
   const env: NodeJS.ProcessEnv = {
@@ -298,16 +320,153 @@ export interface TeardownOptions {
 }
 
 /**
- * Stub teardown handler. Commit 3 lands the real auth lifecycle that
- * gives this function something to do. Until then the subcommand exists
- * in parseArgs so consumers don't see "unknown argument" when v0.3
- * docs first land, but it errors loudly rather than silently no-op.
+ * `preflight teardown` subcommand: invokes cfg.auth.teardown if set,
+ * then deletes the cached storageState. Idempotent — missing
+ * storageState file is not an error. Useful as a safety net after a
+ * test run leaves stale session cookies behind, or as a manual step
+ * before a fresh dev session.
  */
-export async function runTeardown(_opts: TeardownOptions): Promise<number> {
-  process.stderr.write(
-    'preflight teardown: cfg.auth is not yet wired — auth lifecycle lands in a follow-up commit.\n'
-  );
-  return 4;
+export async function runTeardown(opts: TeardownOptions): Promise<number> {
+  const { rawConfig: cfg, consumerCwd, verbose } = opts;
+  if (!cfg.auth) {
+    process.stderr.write(
+      'preflight teardown: no `auth` block configured. Nothing to tear down.\n'
+    );
+    return 0;
+  }
+  const storageStatePath = resolveStorageStatePath(cfg.auth, consumerCwd);
+  if (cfg.auth.teardown) {
+    const teardownPath = path.isAbsolute(cfg.auth.teardown)
+      ? cfg.auth.teardown
+      : path.join(consumerCwd, cfg.auth.teardown);
+    if (!existsSync(teardownPath)) {
+      process.stderr.write(
+        `preflight teardown: auth.teardown module not found at ${teardownPath}\n`
+      );
+      return 2;
+    }
+    if (verbose) {
+      process.stderr.write(`[preflight] invoking auth teardown ${teardownPath}\n`);
+    }
+    try {
+      const fn = await importDefaultFn(teardownPath, consumerCwd);
+      await fn();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[preflight] auth teardown threw: ${msg}\n`);
+      return 4;
+    }
+  }
+  if (existsSync(storageStatePath)) {
+    await unlink(storageStatePath);
+    if (verbose) {
+      process.stderr.write(`[preflight] removed cached storageState ${storageStatePath}\n`);
+    }
+  }
+  return 0;
+}
+
+function resolveStorageStatePath(auth: PreflightAuth, consumerCwd: string): string {
+  const rel = auth.storageStatePath ?? path.join('.preflight', 'auth', 'storageState.json');
+  return path.isAbsolute(rel) ? rel : path.join(consumerCwd, rel);
+}
+
+async function ensureAuthStorageState(
+  auth: PreflightAuth,
+  consumerCwd: string,
+  verbose: boolean
+): Promise<string> {
+  const storageStatePath = resolveStorageStatePath(auth, consumerCwd);
+
+  let needRefresh = !existsSync(storageStatePath);
+  if (!needRefresh && auth.expirySeconds !== undefined) {
+    try {
+      const stats = await stat(storageStatePath);
+      const ageSec = (Date.now() - stats.mtimeMs) / 1000;
+      if (ageSec > auth.expirySeconds) {
+        needRefresh = true;
+        if (verbose) {
+          process.stderr.write(
+            `[preflight] cached storageState is ${Math.round(ageSec)}s old (> ${auth.expirySeconds}s expiry); refreshing\n`
+          );
+        }
+      }
+    } catch {
+      needRefresh = true;
+    }
+  }
+
+  if (!needRefresh) {
+    if (verbose) {
+      process.stderr.write(`[preflight] reusing cached storageState ${storageStatePath}\n`);
+    }
+    return storageStatePath;
+  }
+
+  const setupPath = path.isAbsolute(auth.setup)
+    ? auth.setup
+    : path.join(consumerCwd, auth.setup);
+  if (!existsSync(setupPath)) {
+    throw new EnvError(
+      `auth.setup module not found at ${setupPath}. ` +
+        'Set cfg.auth.setup to a path relative to your project root, or an absolute path.'
+    );
+  }
+  if (verbose) {
+    process.stderr.write(`[preflight] running auth setup ${setupPath}\n`);
+  }
+  const setupFn = await importDefaultFn(setupPath, consumerCwd);
+  const state = await setupFn();
+  if (state === null || typeof state !== 'object') {
+    throw new EnvError(
+      `auth.setup at ${setupPath} returned ${typeof state} — expected a Playwright storageState object ` +
+        '(see https://playwright.dev/docs/api/class-browsercontext#browser-context-storage-state).'
+    );
+  }
+  await mkdir(path.dirname(storageStatePath), { recursive: true });
+  await writeFile(storageStatePath, JSON.stringify(state, null, 2), 'utf8');
+  return storageStatePath;
+}
+
+/**
+ * Import the default export of `modPath` and require it to be a
+ * function. Supports .ts/.mts via tsx and .js/.mjs natively.
+ */
+async function importDefaultFn(modPath: string, consumerCwd: string): Promise<() => unknown> {
+  const ext = path.extname(modPath).toLowerCase();
+  let mod: { default?: unknown } & Record<string, unknown>;
+  if (ext === '.ts' || ext === '.mts') {
+    const tsx = (await dynamicImportPreferringConsumer('tsx/esm/api', consumerCwd)) as {
+      tsImport: (specifier: string, parentURL: string) => Promise<unknown>;
+    };
+    const url = pathToFileURL(modPath).href;
+    mod = (await tsx.tsImport(url, import.meta.url)) as typeof mod;
+  } else {
+    mod = (await import(pathToFileURL(modPath).href)) as typeof mod;
+  }
+  const fn = (mod.default ?? mod) as unknown;
+  if (typeof fn !== 'function') {
+    throw new EnvError(
+      `${modPath} must export a default async function returning a storageState (or returning nothing for teardown). ` +
+        `Got: ${typeof fn}.`
+    );
+  }
+  return fn as () => unknown;
+}
+
+async function dynamicImportPreferringConsumer(
+  specifier: string,
+  consumerCwd: string
+): Promise<unknown> {
+  try {
+    const consumerRequire = createRequire(path.join(consumerCwd, 'package.json'));
+    const resolved = consumerRequire.resolve(specifier);
+    return await import(pathToFileURL(resolved).href);
+  } catch {
+    const selfRequire = createRequire(import.meta.url);
+    const resolved = selfRequire.resolve(specifier);
+    return await import(pathToFileURL(resolved).href);
+  }
 }
 
 export interface ListOptions {

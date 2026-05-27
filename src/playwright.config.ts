@@ -18,9 +18,11 @@ interface SerialisedRegExp {
 }
 interface SerialisedConfig extends Omit<ResolvedPreflightConfig, 'consoleIgnore'> {
   consoleIgnore: SerialisedRegExp[];
+  /** Resolved by runner.ts when cfg.auth is set and --no-auth wasn't passed. */
+  storageStatePath?: string;
 }
 
-function loadConfigFromEnv(): ResolvedPreflightConfig {
+function loadConfigFromEnv(): ResolvedPreflightConfig & { storageStatePath?: string } {
   const raw = process.env.PREFLIGHT_CONFIG_JSON;
   if (!raw) {
     throw new Error(
@@ -129,6 +131,9 @@ function buildProjects(): PlaywrightTestConfig['projects'] {
         timezoneId: cfg.timezoneId,
         viewport: profile.viewport,
       };
+      if (cfg.storageStatePath) {
+        useBlock.storageState = cfg.storageStatePath;
+      }
       if (supportsMobileEmulation) {
         if (profile.deviceScaleFactor !== undefined) useBlock.deviceScaleFactor = profile.deviceScaleFactor;
         if (profile.isMobile !== undefined) useBlock.isMobile = profile.isMobile;

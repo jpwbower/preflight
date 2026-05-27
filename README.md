@@ -175,6 +175,53 @@ These are the rough edges to know about before you wire preflight into CI.
 
 ### v0.3 additions
 
+- **Authenticated routes via `cfg.auth`.** Set `cfg.auth.setup` to a path
+  pointing at a JS/TS module that returns a Playwright `storageState`
+  object (cookies + localStorage). preflight imports it, calls its
+  default export, persists the result to
+  `.preflight/auth/storageState.json` (override via
+  `cfg.auth.storageStatePath`), and wires the cached state into every
+  Playwright project's `use.storageState`. The setup module is invoked
+  ONCE per run unless the cached file is older than
+  `cfg.auth.expirySeconds`.
+
+  ```ts
+  // preflight.config.ts
+  export default defineConfig({
+    baseURL: 'http://127.0.0.1:3000',
+    routes: [{ name: 'dashboard', path: '/dashboard' }],
+    webServer: { command: 'npm run dev', url: 'http://127.0.0.1:3000' },
+    auth: {
+      setup: './preflight.auth.ts',
+      teardown: './preflight.auth.teardown.ts',  // optional
+      storageStatePath: '.preflight/auth/storageState.json',  // default
+      expirySeconds: 3600,  // re-run setup after one hour
+    },
+  });
+  ```
+
+  ```ts
+  // preflight.auth.ts — consumer-authored
+  import { chromium } from '@playwright/test';
+  export default async function setupAuth() {
+    const browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto('http://127.0.0.1:3000/login');
+    await page.fill('#email', process.env.TEST_USER!);
+    await page.fill('#password', process.env.TEST_PASS!);
+    await page.click('button[type=submit]');
+    await page.waitForURL('**/dashboard');
+    const state = await page.context().storageState();
+    await browser.close();
+    return state;
+  }
+  ```
+
+  Run `npx preflight teardown` to invoke `cfg.auth.teardown` (if set) and
+  delete the cached state — useful after a test run leaves session
+  cookies behind. `--no-auth` bypasses the setup for one run (useful for
+  smoke-testing your unauthenticated landing route).
+
 - **Visual regression baselines drift across Windows minor updates.** ClearType
   subpixel font hinting is recomputed when Windows updates the system font cache,
   which lands silently — a baseline captured on Windows 11 build 22631 will mismatch
