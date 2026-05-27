@@ -1,0 +1,49 @@
+{
+  "name": "preflight",
+  "version": "0.1.0",
+  "description": "Local-only web-assurance scaffolding for any web project. Runs Playwright (Chromium/Firefox/WebKit) plus axe-core and virtual screen reader against your dev server, with no SaaS dependency.",
+  "license": "MIT",
+  "author": "preflight contributors",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "preflight": "bin/preflight.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepare": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "preflight"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.50.0"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@guidepup/virtual-screen-reader": "^0.30.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": [
+    "playwright",
+    "axe",
+    "accessibility",
+    "a11y",
+    "wcag",
+    "smoke-test",
+    "web-assurance",
+    "preflight"
+  ]
+}
