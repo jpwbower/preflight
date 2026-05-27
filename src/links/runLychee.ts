@@ -61,6 +61,8 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
     process.stderr.write(`[preflight] lychee: launching: lychee ${args.join(' ')}\n`);
   }
 
+  await checkLycheeVersion();
+
   // Pipe stdout/stderr straight to disk so a large-site sweep (lychee
   // can emit tens of MB on a thousand-link crawl) doesn't accumulate
   // in V8 heap and OOM the parent. The live tee to process.stdout
@@ -148,4 +150,65 @@ function joinUrl(base: string, p: string): string {
   const baseTrimmed = base.replace(/\/+$/, '');
   const pathTrimmed = p.replace(/^\/+/, '');
   return `${baseTrimmed}/${pathTrimmed}`;
+}
+
+const LYCHEE_MIN_MAJOR = 0;
+const LYCHEE_MIN_MINOR = 13;
+
+/**
+ * Pre-flight `lychee --version` round-trip. Closes the v0.2 carry-forward
+ * "lychee version skew is silent until the CLI rejects an argument".
+ *
+ * Warns (does not block) if the installed lychee is older than 0.13.0 —
+ * preflight uses --no-progress / --max-concurrency / --timeout, which
+ * older lychee builds may not support. On parse failure we emit a
+ * softer warning and proceed; link checking is best-effort and a
+ * version check failing should never punish a consumer who pinned an
+ * older lychee for unrelated reasons.
+ *
+ * The spawn itself can fail (ENOENT) — that's not our concern here; the
+ * main run path below has dedicated handling for the missing-binary
+ * case with install-instruction output. We swallow errors from this
+ * probe to avoid double-reporting.
+ */
+async function checkLycheeVersion(): Promise<void> {
+  let stdout = '';
+  try {
+    await new Promise<void>((resolve) => {
+      let child;
+      try {
+        child = spawn('lychee', ['--version']);
+      } catch {
+        resolve();
+        return;
+      }
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf8');
+      });
+      child.on('error', () => resolve());
+      child.on('exit', () => resolve());
+    });
+  } catch {
+    return;
+  }
+
+  if (!stdout) return;
+  const m = /^lychee\s+(\d+)\.(\d+)\.(\d+)/m.exec(stdout);
+  if (!m) {
+    process.stderr.write(
+      `[preflight] lychee: could not parse version from "${stdout.trim().split(/\r?\n/)[0] ?? ''}"; proceeding without compatibility check.\n`
+    );
+    return;
+  }
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  const patch = Number(m[3]);
+  const tooOld =
+    major < LYCHEE_MIN_MAJOR ||
+    (major === LYCHEE_MIN_MAJOR && minor < LYCHEE_MIN_MINOR);
+  if (tooOld) {
+    process.stderr.write(
+      `[preflight] lychee ${major}.${minor}.${patch} detected. preflight uses --no-progress / --max-concurrency / --timeout which may not be supported. Upgrade via brew/scoop/cargo install lychee@latest.\n`
+    );
+  }
 }
