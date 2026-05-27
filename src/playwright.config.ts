@@ -221,12 +221,18 @@ const config: PlaywrightTestConfig = defineConfig({
   // can be checked in.
   //
   // process.cwd() === consumerCwd here: the runner spawns Playwright
-  // with `cwd: consumerCwd` (see src/cli/runner.ts runPlaywright). A
-  // consumer who wants a different location sets
-  // `playwrightOverrides.snapshotPathTemplate` in their preflight
-  // config — the spread below overrides this default cleanly because
-  // snapshotPathTemplate is a top-level scalar field, not a nested
-  // object, so later-key-wins semantics apply directly.
+  // with `cwd: consumerCwd` (see src/cli/runner.ts runPlaywright).
+  //
+  // Override semantics:
+  //   - Consumer's `playwrightOverrides.snapshotPathTemplate` (top-level
+  //     scalar) WINS via the spread below — later-key-wins on the
+  //     same key.
+  //   - Consumer's `playwrightOverrides.expect.toHaveScreenshot.pathTemplate`
+  //     (a sibling key, NOT the same key) does NOT replace this default;
+  //     both apply (Playwright merges expect-level templates over the
+  //     top-level one per assertion).
+  //   - A consumer who sets only other top-level keys (e.g. `expect`,
+  //     `timeout`) leaves this default in place — intentional.
   snapshotPathTemplate: path.join(
     process.cwd(),
     '__preflight_screenshots__',

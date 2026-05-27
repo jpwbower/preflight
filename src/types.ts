@@ -216,7 +216,15 @@ export interface PreflightConfig {
    * Run html-validate against the raw HTTP response body (via Node `fetch`)
    * in ADDITION to the post-hydration DOM pass, on `--release`. Default
    * false. When true, each route produces two independent test cases:
-   * `markup on $name (post-hydration)` and `markup on $name (raw response)`.
+   * `markup on $name ($path) (post-hydration)` and
+   * `markup on $name ($path) (raw response)`.
+   *
+   * **Title-shape side effect**: enabling this flag changes the
+   * post-hydration test title from the v0.4 shape `markup on $name ($path)`
+   * to `markup on $name ($path) (post-hydration)` so the two passes
+   * are disambiguated in the report. CI dashboards keyed on the v0.4
+   * full title will not match the new shape — switch to a prefix
+   * match on `markup on $name ($path)` if you enable this flag.
    *
    * Closes the carry-forward "html-validate runs against post-hydration
    * DOM only" — the post-hydration pass misses SSR markup bugs that the

@@ -172,9 +172,11 @@ if (!isRelease) {
             // Surface as test failure, not skip — fetch failure is a
             // signal worth reporting (route unreachable from the Node
             // process running the test, even though the browser
-            // navigation succeeded).
-            expect(undefined, `raw-response fetch of ${url} failed: ${msg}`).toBe('reachable');
-            return;
+            // navigation succeeded). Thrown as Error so Playwright's
+            // failure-line reads as a real error message rather than
+            // the misleading "Expected: 'reachable' / Received: undefined"
+            // shape that an expect().toBe assertion would produce.
+            throw new Error(`raw-response fetch of ${url} failed: ${msg}`);
           }
 
           await assertValidMarkup(loaded, bodyText, route.path, 'raw response');

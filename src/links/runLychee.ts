@@ -92,6 +92,7 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   // path (default for cargo / brew installs and any consumer
   // manually placing the binary) never goes through the shell.
   if (mainResult.notFound && process.platform === 'win32') {
+    writeCmdFallbackBreadcrumb();
     mainResult = await spawnLycheeMain('lychee', args, consumerCwd, outputStream, true);
   }
   if (mainResult.notFound) {
@@ -149,6 +150,23 @@ const LYCHEE_MIN_MAJOR = 0;
 const LYCHEE_MIN_MINOR = 13;
 
 /**
+ * Per-run flag: write the .cmd-fallback breadcrumb to stderr at most
+ * once, on the first place we discover we need `shell: true` (version
+ * probe OR main spawn). Annotating ownership of the fallback prevents
+ * consumers from reading Node's unrelated-looking DEP0190 warning as
+ * a preflight bug.
+ */
+let cmdFallbackBreadcrumbWritten = false;
+function writeCmdFallbackBreadcrumb(): void {
+  if (cmdFallbackBreadcrumbWritten) return;
+  cmdFallbackBreadcrumbWritten = true;
+  process.stderr.write(
+    '[preflight] lychee: bare `lychee` not found on PATH; retrying via cmd.exe for .cmd-shim support. ' +
+      '(Node will emit a DEP0190 deprecation warning — this is expected; see README v0.5.)\n'
+  );
+}
+
+/**
  * Pre-flight `lychee --version` round-trip. Closes the v0.2 carry-forward
  * "lychee version skew is silent until the CLI rejects an argument".
  *
@@ -175,6 +193,7 @@ async function checkLycheeVersion(): Promise<void> {
   // invocation passes no consumer-derived args, so shell:true here
   // has zero injection surface.
   if (!captured && process.platform === 'win32') {
+    writeCmdFallbackBreadcrumb();
     captured = await probeLycheeVersion('lychee', true);
   }
   if (!captured) return;
