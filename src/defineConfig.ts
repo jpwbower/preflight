@@ -27,8 +27,13 @@ const KNOWN_KEYS = new Set<keyof PreflightConfig>([
   'visualProject',
   'visualThreshold',
   'auth',
+  'networkPreset',
+  'releaseOnlyPatterns',
   'playwrightOverrides',
 ]);
+
+const KNOWN_NETWORK_PRESET_NAMES = new Set(['3g-slow', '3g-fast', '4g', 'wifi']);
+const KNOWN_NETWORK_PRESET_CUSTOM_KEYS = new Set(['downloadKbps', 'uploadKbps', 'latencyMs']);
 
 const KNOWN_ROUTE_KEYS = new Set(['name', 'path', 'lighthouseThresholds']);
 const KNOWN_AUTH_KEYS = new Set(['setup', 'teardown', 'storageStatePath', 'expirySeconds']);
@@ -307,6 +312,25 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     throw new PreflightConfigError('timezoneId, if set, must be a non-empty IANA timezone string.');
   }
 
+  let networkPreset: ResolvedPreflightConfig['networkPreset'];
+  if (cfg.networkPreset !== undefined) {
+    networkPreset = validateNetworkPreset(cfg.networkPreset);
+  }
+
+  let releaseOnlyPatterns: ResolvedPreflightConfig['releaseOnlyPatterns'];
+  if (cfg.releaseOnlyPatterns !== undefined) {
+    if (
+      !Array.isArray(cfg.releaseOnlyPatterns) ||
+      !cfg.releaseOnlyPatterns.every((p) => typeof p === 'string' && p.length > 0)
+    ) {
+      throw new PreflightConfigError(
+        'releaseOnlyPatterns, if set, must be an array of non-empty glob strings ' +
+          '(e.g. ["**/my-perf.spec.js"]).'
+      );
+    }
+    releaseOnlyPatterns = cfg.releaseOnlyPatterns as string[];
+  }
+
   return {
     baseURL: cfg.baseURL,
     routes,
@@ -322,7 +346,48 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     visualProject,
     visualThreshold,
     auth,
+    networkPreset,
+    releaseOnlyPatterns,
     playwrightOverrides: cfg.playwrightOverrides as ResolvedPreflightConfig['playwrightOverrides'],
+  };
+}
+
+function validateNetworkPreset(input: unknown): NonNullable<ResolvedPreflightConfig['networkPreset']> {
+  if (typeof input === 'string') {
+    if (!KNOWN_NETWORK_PRESET_NAMES.has(input)) {
+      throw new PreflightConfigError(
+        `networkPreset "${input}" is not a recognised preset. Known: ${Array.from(KNOWN_NETWORK_PRESET_NAMES).join(', ')}, ` +
+          'or supply a custom object { downloadKbps, uploadKbps, latencyMs }.'
+      );
+    }
+    return input as '3g-slow' | '3g-fast' | '4g' | 'wifi';
+  }
+  if (input === null || typeof input !== 'object') {
+    throw new PreflightConfigError(
+      'networkPreset must be a preset name (3g-slow / 3g-fast / 4g / wifi) ' +
+        'or an object { downloadKbps, uploadKbps, latencyMs }.'
+    );
+  }
+  const np = input as Record<string, unknown>;
+  for (const k of Object.keys(np)) {
+    if (!KNOWN_NETWORK_PRESET_CUSTOM_KEYS.has(k)) {
+      throw new PreflightConfigError(
+        `networkPreset has unknown key "${k}". Known: ${Array.from(KNOWN_NETWORK_PRESET_CUSTOM_KEYS).join(', ')}.`
+      );
+    }
+  }
+  for (const k of KNOWN_NETWORK_PRESET_CUSTOM_KEYS) {
+    const v = np[k];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+      throw new PreflightConfigError(
+        `networkPreset.${k} must be a non-negative finite number.`
+      );
+    }
+  }
+  return {
+    downloadKbps: np.downloadKbps as number,
+    uploadKbps: np.uploadKbps as number,
+    latencyMs: np.latencyMs as number,
   };
 }
 

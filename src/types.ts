@@ -64,6 +64,31 @@ export interface PreflightLighthouseThresholds {
 }
 
 /**
+ * Network throttling preset applied to smoke.spec.ts and a11y.spec.ts.
+ *
+ * Implemented via Chromium DevTools Protocol (`Network.emulateNetworkConditions`)
+ * — so it ONLY takes effect on chromium projects. On firefox / webkit the
+ * helper emits a one-time console.warn and the test runs at full bandwidth.
+ *
+ * Named presets resolve as:
+ *   `3g-slow`: 400 down / 400 up kbps, 400 ms latency (Lighthouse "Slow 3G")
+ *   `3g-fast`: 1638 down / 768 up kbps, 150 ms latency (Lighthouse "Fast 3G")
+ *   `4g`:      9000 down / 9000 up kbps, 170 ms latency
+ *   `wifi`:    30000 down / 15000 up kbps, 2 ms latency
+ *
+ * `--release` Lighthouse audits IGNORE this setting — Lighthouse runs its
+ * own simulated throttling for accurate perf budgets and we don't want
+ * the two to compete.
+ */
+export type PreflightNetworkPresetName = '3g-slow' | '3g-fast' | '4g' | 'wifi';
+export interface PreflightNetworkPresetCustom {
+  downloadKbps: number;
+  uploadKbps: number;
+  latencyMs: number;
+}
+export type PreflightNetworkPreset = PreflightNetworkPresetName | PreflightNetworkPresetCustom;
+
+/**
  * Auth lifecycle hooks. `setup` is the path (relative to the consumer's
  * project root, or absolute) of a JS/TS module that returns a Playwright
  * storageState object — preflight imports it, calls its default export,
@@ -177,6 +202,35 @@ export interface PreflightConfig {
   auth?: PreflightAuth;
 
   /**
+   * Apply CDP-based network throttling to smoke.spec and a11y.spec. See
+   * {@link PreflightNetworkPreset}. Chromium-only — preflight warns
+   * once and proceeds at full bandwidth on firefox / webkit.
+   *
+   * NOT wired into keyboard / emulated-media / virtual-sr (bandwidth
+   * does not affect their signal) or lighthouse.spec (Lighthouse runs
+   * its own simulated throttling).
+   */
+  networkPreset?: PreflightNetworkPreset;
+
+  /**
+   * Additional spec globs to treat as release-only — appended to
+   * preflight's built-in release-only spec list (nvda, lighthouse,
+   * html-validate) and applied via project-level `testIgnore`. Matched
+   * files are excluded from every project EXCEPT
+   * `chromium__desktop-1280` (the release-supported project).
+   *
+   * NOTE: Playwright matches `testIgnore` globs against files
+   * discovered under the active `testDir`. preflight's `testDir` is its
+   * own bundled specs dir, so these patterns only do anything if the
+   * consumer's spec files are ALSO discoverable there (typically via
+   * `playwrightOverrides.testDir` or `testMatch`). For consumer specs
+   * that live in a separate root, gate them yourself using
+   * `process.env.PREFLIGHT_RELEASE === '1'` inside your own
+   * `playwrightOverrides`.
+   */
+  releaseOnlyPatterns?: string[];
+
+  /**
    * Escape hatch for advanced consumers — extra Playwright config merged
    * into the generated config last. Use sparingly; preflight may override.
    */
@@ -201,5 +255,7 @@ export interface ResolvedPreflightConfig {
   visualProject?: string;
   visualThreshold?: number;
   auth?: PreflightAuth;
+  networkPreset?: PreflightNetworkPreset;
+  releaseOnlyPatterns?: string[];
   playwrightOverrides?: Partial<PlaywrightTestConfig>;
 }
