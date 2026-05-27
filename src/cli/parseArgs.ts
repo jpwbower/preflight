@@ -213,7 +213,14 @@ export function helpText(): string {
     '  1  test failure',
     '  2  config error',
     '  3  environment error (preflight dist/ missing or @playwright/test peer dep not installed)',
-    '  4  runtime error',
+    '  4  runtime error (includes wall-clock hang — see runnerTimeoutMs below)',
+    '',
+    'WALL-CLOCK CAP',
+    '  Every run has an upper bound. Defaults: --smoke 5 min, --visual 30 min,',
+    '  default cadence 30 min, --release 60 min. Override via runnerTimeoutMs',
+    '  in preflight.config.ts (number of milliseconds, applies to all cadences).',
+    '  On expiry preflight SIGKILLs Playwright + writes summary.json with',
+    '  hang.hangDetected: true and exit code 4.',
     '',
   ].join('\n');
 }

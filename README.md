@@ -123,7 +123,7 @@ preflight's WebKit project is engine-close, not behaviour-identical to iOS Safar
 | 1    | Test failure (assertion / smoke / a11y violation at fail-threshold) |
 | 2    | Config error (your `preflight.config.ts` is invalid) |
 | 3    | Environment error (preflight's `dist/` missing, or `@playwright/test` peer dep not installed) |
-| 4    | Runtime error (uncaught throw in the preflight runner) |
+| 4    | Runtime error (uncaught throw OR wall-clock hang — see "Wall-clock cap" below) |
 
 `--ci` flips: console **warnings** escalate to failures alongside errors.
 
@@ -166,6 +166,55 @@ The four cadences exist so each test pays its wallclock cost at the right moment
 | `--release`    | pre-tag, before publish | 5–20 min         | full + NVDA (Windows) + Lighthouse (Chromium) + html-validate |
 | `--links`      | nightly cron           | depends on site  | lychee against the configured routes; no browser launch. v0.4 warns if lychee is older than 0.13.0. |
 | `--visual`     | opt-in (consumer choice) | depends on site | toHaveScreenshot per route on one project; baselines consumer-managed |
+
+### Wall-clock cap
+
+Every cadence has an upper wall-clock bound. If Playwright doesn't
+exit within the cap, preflight SIGKILLs the spawned child + exits
+with code 4 (RUNTIME_ERROR) + writes `summary.json` with
+`hang: { hangDetected: true, globalTimeoutMs, killAfterMs }`. This
+exists because Playwright's worker-pool shutdown can deadlock on
+multi-engine multi-viewport runs (notably WebKit on Windows) —
+without a cap, the parent runner would block forever on child exit.
+
+| Cadence       | Default cap |
+| ------------- | ----------- |
+| `--smoke`     | 5 min       |
+| (default)     | 30 min      |
+| `--visual`    | 30 min      |
+| `--release`   | 60 min      |
+
+Override per-config via `runnerTimeoutMs` (number of milliseconds):
+
+```ts
+// preflight.config.ts
+export default defineConfig({
+  baseURL: 'http://127.0.0.1:3000',
+  routes: [{ name: 'home', path: '/' }],
+  webServer: false,
+  runnerTimeoutMs: 20 * 60 * 1000, // 20 min for ALL cadences in this run
+});
+```
+
+To set per-cadence overrides, branch on `process.argv` inside
+`preflight.config.ts` before returning the config object — preflight
+imports the file at startup and inspects the resolved value.
+
+The cap is enforced in two places (belt + braces):
+1. **Playwright `globalTimeout`** — the runner forwards
+   `runnerTimeoutMs` (or the cadence default) into the generated
+   Playwright config. Playwright honours this on healthy runs and
+   exits cleanly.
+2. **Parent SIGKILL after `runnerTimeoutMs + 90_000` ms grace** —
+   covers the case where Playwright itself is deadlocked and never
+   acts on `globalTimeout`. The 90 s grace lets a healthy
+   globalTimeout fire shut down workers, flush the JSON reporter,
+   and finalise the HTML report before the parent escalates.
+
+CI consumers wanting to detect a forced kill check
+`summary.hang?.hangDetected === true`. On healthy runs the `hang`
+field is omitted entirely, so older consumers that don't know about
+the field continue to work.
 
 ---
 

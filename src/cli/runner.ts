@@ -61,10 +61,46 @@ export interface RunResult {
   exitCode: number;
 }
 
+/**
+ * Cadence-aware default wall-clock cap for the whole Playwright run.
+ *
+ * Why each value: --smoke is a per-push budget (chromium + mobile-375
+ * only, ~17 s in the repo's own CI fixture) so 5 min is generous
+ * headroom for the largest reasonable smoke surface; default is the
+ * PR-open cadence advertised as "1–5 min" in README but realistic
+ * upper bound of ~16 min on a 36-route 15-project matrix has been
+ * observed in the wild, so 30 min covers that and leaves slack;
+ * --release adds Lighthouse (1 spec × routes, ~5–15 s each on
+ * desktop-1280) + NVDA (Windows-only, single-worker, ~10 s per
+ * route) + html-validate, so 60 min; --visual restricts to one
+ * project, so 30 min suffices.
+ *
+ * `cfg.runnerTimeoutMs` overrides this for ALL cadences in the same
+ * run. Consumers who want per-cadence overrides branch on
+ * `process.argv` in their preflight.config.ts.
+ */
+function defaultRunnerTimeoutMs(args: ParsedArgs): number {
+  if (args.smoke) return 5 * 60 * 1000;
+  if (args.release) return 60 * 60 * 1000;
+  if (args.visual) return 30 * 60 * 1000;
+  return 30 * 60 * 1000; // default cadence (full engine × viewport matrix)
+}
+
+/**
+ * Grace window between Playwright's globalTimeout firing and the
+ * parent SIGKILL. 90 s covers worker-shutdown + JSON-reporter flush
+ * + html-reporter finalisation on a deadlocked WebKit-on-Windows
+ * shape. Shorter values risk killing Playwright mid-flush and
+ * producing the same all-zeros summary the v0.6.0 hang produced.
+ */
+const RUNNER_KILL_GRACE_MS = 90_000;
+
 export async function run(opts: RunOptions): Promise<RunResult> {
   const { args, rawConfig, consumerCwd } = opts;
 
   const cfg = applyRunFlagsToConfig(rawConfig, args);
+  const globalTimeoutMs = cfg.runnerTimeoutMs ?? defaultRunnerTimeoutMs(args);
+  const killAfterMs = globalTimeoutMs + RUNNER_KILL_GRACE_MS;
 
   const lastRunDir = path.join(consumerCwd, '.preflight', 'last-run');
   await rm(lastRunDir, { recursive: true, force: true });
@@ -133,6 +169,10 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     PREFLIGHT_SMOKE: args.smoke ? '1' : '0',
     PREFLIGHT_RELEASE: args.release ? '1' : '0',
     PREFLIGHT_VISUAL: args.visual ? '1' : '0',
+    // Wall-clock cap forwarded to playwright.config.ts → `globalTimeout`.
+    // The parent runner ALSO enforces this via a SIGKILL after a 90 s
+    // grace window — see runPlaywright() and the v0.6.1 CHANGELOG entry.
+    PREFLIGHT_GLOBAL_TIMEOUT_MS: String(globalTimeoutMs),
     // PREFLIGHT_VERSION is intentionally NOT forwarded — writeSummary in the
     // parent process takes the version directly, so the child does not need it.
   };
@@ -150,7 +190,13 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     process.stderr.write(`[preflight] launching: node ${cliArgs.map((a) => quote(a)).join(' ')}\n`);
   }
 
-  const exitCode = await runPlaywright(cliArgs, env, consumerCwd);
+  const { exitCode, hangDetected } = await runPlaywright(
+    cliArgs,
+    env,
+    consumerCwd,
+    killAfterMs,
+    args.verbose
+  );
 
   const totals = await tallyResults(jsonFile);
   const cadence: SummaryJson['cadence'] = args.visual
@@ -160,7 +206,15 @@ export async function run(opts: RunOptions): Promise<RunResult> {
       : args.release
         ? 'release'
         : 'full';
-  await writeSummary(lastRunDir, cfg, exitCode, opts.preflightVersion, totals, cadence);
+  await writeSummary(
+    lastRunDir,
+    cfg,
+    exitCode,
+    opts.preflightVersion,
+    totals,
+    cadence,
+    hangDetected ? { hangDetected: true, globalTimeoutMs, killAfterMs } : undefined
+  );
 
   // Convenience symlink: .preflight/last-run/index.html → html-report/index.html.
   // Symlink creation on Windows requires elevation or Developer Mode; if it
@@ -216,28 +270,128 @@ function parseProjectName(name: string): { engine: EngineName; viewport: Viewpor
   return { engine: engine as EngineName, viewport: viewport as ViewportName };
 }
 
+interface PlaywrightRunResult {
+  exitCode: number;
+  /**
+   * True iff the wall-clock kill fired before the child exited on its
+   * own. Propagated into summary.json so a CI consumer scripting on
+   * the summary can detect a hang without parsing stderr.
+   */
+  hangDetected: boolean;
+}
+
+/**
+ * Spawn Playwright and await its exit, with a hard wall-clock cap.
+ *
+ * If the child exits on its own, resolve with its exit code. If
+ * `killAfterMs` elapses first, escalate kill signals (SIGTERM → wait
+ * 10 s → SIGKILL) and resolve with exit 4 (RUNTIME_ERROR) plus
+ * `hangDetected: true`. The 10-s SIGTERM grace lets Playwright write
+ * a partial JSON reporter file in the happy-non-hang shutdown case;
+ * SIGKILL is the belt-and-braces escape when even SIGTERM doesn't
+ * reach the deadlocked worker pool.
+ *
+ * Windows-specific: SIGTERM does not actually terminate a Windows
+ * process — Node maps it to taskkill /T (graceful) anyway, but in
+ * practice the only signal that always kills is SIGKILL. So on
+ * Windows the SIGTERM step is effectively a no-op delay; we keep the
+ * structure cross-platform so behaviour is the same on macOS / Linux
+ * where SIGTERM is meaningful.
+ */
 function runPlaywright(
   cliArgs: string[],
   env: NodeJS.ProcessEnv,
-  cwd: string
-): Promise<number> {
+  cwd: string,
+  killAfterMs: number,
+  verbose: boolean
+): Promise<PlaywrightRunResult> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, cliArgs, {
       stdio: 'inherit',
       env,
       cwd,
     });
+
+    let settled = false;
+    let hangDetected = false;
+    let sigtermTimer: NodeJS.Timeout | undefined;
+    let sigkillTimer: NodeJS.Timeout | undefined;
+
+    const settle = (result: PlaywrightRunResult) => {
+      if (settled) return;
+      settled = true;
+      if (sigtermTimer) clearTimeout(sigtermTimer);
+      if (sigkillTimer) clearTimeout(sigkillTimer);
+      clearTimeout(wallClockTimer);
+      resolve(result);
+    };
+
+    const wallClockTimer = setTimeout(() => {
+      if (settled) return;
+      hangDetected = true;
+      const minutes = (killAfterMs / 60_000).toFixed(1);
+      process.stderr.write(
+        `[preflight] Playwright did not exit within ${minutes} min wall-clock cap. ` +
+          'Sending SIGTERM. If the worker pool is deadlocked (a known issue on multi-engine ' +
+          'Windows runs), SIGKILL follows in 10 s.\n'
+      );
+      try {
+        child.kill('SIGTERM');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[preflight] SIGTERM failed: ${msg}\n`);
+      }
+      sigkillTimer = setTimeout(() => {
+        if (settled) return;
+        process.stderr.write(
+          '[preflight] Playwright did not exit 10 s after SIGTERM. Sending SIGKILL. ' +
+            'summary.json will be written with hangDetected:true and exit code 4 ' +
+            '(RUNTIME_ERROR). Inspect .preflight/last-run/ for partial results.\n'
+        );
+        try {
+          child.kill('SIGKILL');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(`[preflight] SIGKILL failed: ${msg}\n`);
+        }
+        // Belt-and-braces: even SIGKILL can fail to reach a child whose
+        // pid was reused or which has detached. Resolve after a further
+        // 5 s so the parent never deadlocks waiting on a dead child.
+        sigtermTimer = setTimeout(() => {
+          if (settled) return;
+          process.stderr.write(
+            '[preflight] child did not exit 5 s after SIGKILL. Resolving anyway; ' +
+              'the child process may be orphaned — check process inventory.\n'
+          );
+          settle({ exitCode: 4, hangDetected: true });
+        }, 5_000);
+      }, 10_000);
+    }, killAfterMs);
+
+    if (verbose) {
+      const minutes = (killAfterMs / 60_000).toFixed(1);
+      process.stderr.write(
+        `[preflight] wall-clock cap on Playwright child: ${minutes} min (SIGKILL after grace).\n`
+      );
+    }
+
     child.on('exit', (code, signal) => {
+      if (hangDetected) {
+        // Child exited because of our kill escalation — record as runtime
+        // error regardless of the signal that finally took it down.
+        settle({ exitCode: 4, hangDetected: true });
+        return;
+      }
       if (signal) {
         process.stderr.write(`[preflight] Playwright terminated by signal ${signal}\n`);
-        resolve(1);
+        settle({ exitCode: 1, hangDetected: false });
       } else {
-        resolve(code ?? 1);
+        settle({ exitCode: code ?? 1, hangDetected: false });
       }
     });
     child.on('error', (err) => {
       process.stderr.write(`[preflight] failed to spawn Playwright: ${err.message}\n`);
-      resolve(4);
+      settle({ exitCode: 4, hangDetected: false });
     });
   });
 }
@@ -265,6 +419,25 @@ interface SummaryJson {
     timezoneId: string;
   };
   disabledAxeRules: { rule: string; reason: string }[] | null;
+  /**
+   * Set iff preflight's wall-clock cap fired before Playwright exited
+   * on its own — i.e. the child was SIGKILLed by the parent runner.
+   * Omitted (not `false`) on healthy runs so backwards-compatible CI
+   * consumers that key on a missing field see the historical shape.
+   */
+  hang?: {
+    hangDetected: true;
+    /** Playwright globalTimeout used for this run, in ms. */
+    globalTimeoutMs: number;
+    /** Total wall-clock window before SIGKILL (globalTimeoutMs + grace). */
+    killAfterMs: number;
+  };
+}
+
+interface HangInfo {
+  hangDetected: true;
+  globalTimeoutMs: number;
+  killAfterMs: number;
 }
 
 async function tallyResults(jsonFile: string): Promise<NonNullable<SummaryJson['totals']>> {
@@ -293,7 +466,8 @@ async function writeSummary(
   exitCode: number,
   preflightVersion: string,
   totals: NonNullable<SummaryJson['totals']>,
-  cadence: SummaryJson['cadence']
+  cadence: SummaryJson['cadence'],
+  hang?: HangInfo
 ): Promise<void> {
   const summary: SummaryJson = {
     version: preflightVersion,
@@ -310,6 +484,7 @@ async function writeSummary(
       timezoneId: cfg.timezoneId,
     },
     disabledAxeRules: cfg.axeDisabled,
+    ...(hang ? { hang } : {}),
   };
   await writeFile(path.join(outDir, 'summary.json'), JSON.stringify(summary, null, 2), 'utf8');
 }

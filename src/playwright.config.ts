@@ -44,6 +44,32 @@ const isRelease = process.env.PREFLIGHT_RELEASE === '1';
 const isVisual = process.env.PREFLIGHT_VISUAL === '1';
 
 /**
+ * Wall-clock upper bound for the whole Playwright run. The runner
+ * computes this in the parent process (cadence-aware default, override-
+ * able via cfg.runnerTimeoutMs) and forwards it via env so this config
+ * file does not need to know about cadence flags.
+ *
+ * Playwright's `globalTimeout` doc: "Total time spent by the whole test
+ * run. If exceeded, the runner exits and reports the time used as the
+ * cause of the failure." Without this set, a deadlocked worker
+ * shutdown (e.g. WebKit-on-Windows on multi-engine runs) leaves
+ * Playwright stuck post-test-completion with no recovery — the bug
+ * v0.6.1 fixes.
+ *
+ * The parent runner also enforces this as a SIGKILL bound after
+ * `globalTimeoutMs + 90_000` ms (belt + braces; the grace window
+ * lets Playwright shut down naturally when globalTimeout fires).
+ */
+const globalTimeoutMs = parsePositiveInt(process.env.PREFLIGHT_GLOBAL_TIMEOUT_MS);
+
+function parsePositiveInt(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.floor(n);
+}
+
+/**
  * Release-only spec files. These are gated to one supported project
  * (NVDA cannot tolerate parallel sessions; Lighthouse is Chromium-only;
  * html-validate runs against post-hydration DOM which is engine-agnostic).
@@ -200,6 +226,11 @@ const config: PlaywrightTestConfig = defineConfig({
   // it prevents other-project workers from launching browsers and
   // stealing focus from NVDA. Both halves are required.
   workers: isRelease ? 1 : isCi ? 2 : undefined,
+  // Wall-clock cap on the whole run. See globalTimeoutMs comment above.
+  // Setting to `undefined` (the Playwright default) means "no bound", which
+  // is the v0.6.0 behaviour that produced the hang bug — so we always
+  // forward a value from the runner.
+  globalTimeout: globalTimeoutMs,
   reporter: buildReporters(),
 
   use: {

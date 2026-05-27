@@ -7,6 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-27
+
+Fixes a default-cadence hang where a multi-engine multi-viewport run
+could deadlock during Playwright worker-pool shutdown (the
+`worker-N process did not exit within 300000ms after stop` warning
+followed by indefinite hang post-test-completion). preflight v0.6.0
+inherited this Playwright sharp edge with no recovery — the runner
+awaited Playwright's child exit with no wall-clock bound, and the
+generated config never set `globalTimeout`. v0.6.1 adds both bounds
+(belt + braces) and a `hangDetected` flag in `summary.json` so CI
+consumers can detect a forced kill deterministically.
+
+### Fixed
+
+- **Default cadence wall-clock cap.** Every Playwright run now has an
+  upper bound. The runner forwards `globalTimeout` to the generated
+  Playwright config AND wraps the spawned child with a SIGKILL after
+  `globalTimeout + 90_000` ms grace. On expiry: SIGTERM, 10 s grace,
+  SIGKILL, 5 s grace, parent resolves with exit code 4
+  (RUNTIME_ERROR) and writes `summary.json` with
+  `hang: { hangDetected: true, globalTimeoutMs, killAfterMs }`. The
+  90 s grace exists so a healthy globalTimeout fire (Playwright exits
+  on its own, flushes the JSON reporter, finalises the HTML report)
+  is not interrupted by the parent's belt-and-braces kill.
+
+  Per-cadence defaults:
+
+  | Cadence       | Default `globalTimeout` |
+  | ------------- | ----------------------- |
+  | `--smoke`     | 5 min                   |
+  | default       | 30 min                  |
+  | `--visual`    | 30 min                  |
+  | `--release`   | 60 min                  |
+
+  Why the v0.6.0 hang surfaced now: Playwright's WebKit worker pool
+  shutdown can deadlock on Windows when ~15 projects (3 engines × 5
+  viewports) run in parallel. The individual tests completed; the
+  shutdown of one worker called into a webkit process that never
+  acknowledged stop(). v0.6.0 had no recovery from this — the
+  parent runner blocked on child exit indefinitely. With the new
+  caps, the run exits within `runnerTimeoutMs + 90 s` regardless of
+  Playwright's worker-pool state.
+
+### Added
+
+- **`runnerTimeoutMs` config field.** Override the cadence default
+  with an explicit wall-clock cap in milliseconds. Applies to every
+  cadence in the same run; to set per-cadence overrides, branch on
+  `process.argv` inside `preflight.config.ts` before returning. Must
+  be a positive finite number; rejected at config-validation time
+  with a clear error otherwise.
+
+  ```ts
+  // preflight.config.ts
+  export default defineConfig({
+    baseURL: 'http://127.0.0.1:3000',
+    routes: [{ name: 'home', path: '/' }],
+    webServer: false,
+    runnerTimeoutMs: 20 * 60 * 1000, // 20 min for every cadence
+  });
+  ```
+
+- **`summary.json` `hang` field.** Set iff the wall-clock cap fired.
+  Shape: `{ hangDetected: true, globalTimeoutMs, killAfterMs }`.
+  Omitted entirely on healthy runs so backwards-compatible CI
+  consumers that key on a missing field continue to work; consumers
+  who want hang detection check `summary.hang?.hangDetected === true`.
+
+- **`scripts/simulate-hung-child.mjs`.** Reviewer-runnable integration
+  check that spawns a sleep-forever Node child and runs it through
+  the same SIGTERM → SIGKILL escalation logic as `runPlaywright()`.
+  Exits 0 on the expected `{ exitCode: 4, hangDetected: true }`
+  result; non-zero otherwise. Total wall-clock ~17 s. Run via
+  `node scripts/simulate-hung-child.mjs`. Not shipped in the npm
+  tarball (`files` in `package.json` does not include `scripts/`).
+
+### Changed
+
+- `preflight --help` now documents the wall-clock cap and the
+  `runnerTimeoutMs` config field under a new `WALL-CLOCK CAP`
+  section. Exit code 4 (RUNTIME_ERROR) now explicitly includes the
+  wall-clock-hang case in its description.
+
+- README "Exit codes" table notes that exit 4 covers wall-clock hangs;
+  new "Wall-clock cap" subsection under Cadence documents the per-
+  cadence defaults and the `runnerTimeoutMs` override.
+
 ## [0.6.0]
 
 Adds CI for preflight's own repo and clears the operator-decide
@@ -370,6 +457,10 @@ Initial release. Local-only web-assurance scaffolding for any web project.
 - `npx playwright install` downloads ~650 MB of browser binaries.
 
 [Unreleased]: https://example.com/CHANGELOG
+[0.6.1]: https://example.com/CHANGELOG#0-6-1
+[0.6.0]: https://example.com/CHANGELOG#0-6-0
+[0.5.0]: https://example.com/CHANGELOG#0-5-0
+[0.4.0]: https://example.com/CHANGELOG#0-4-0
 [0.3.0]: https://example.com/CHANGELOG#0-3-0
 [0.2.0]: https://example.com/CHANGELOG#0-2-0
 [0.1.0]: https://example.com/CHANGELOG#0-1-0

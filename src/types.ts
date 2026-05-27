@@ -269,6 +269,35 @@ export interface PreflightConfig {
    * into the generated config last. Use sparingly; preflight may override.
    */
   playwrightOverrides?: Partial<PlaywrightTestConfig>;
+
+  /**
+   * Wall-clock upper bound (in milliseconds) for the whole Playwright
+   * run, inclusive of all engines × viewports × specs × routes. preflight
+   * applies this as Playwright's `globalTimeout` AND wraps the spawned
+   * Playwright child with a SIGKILL after `runnerTimeoutMs + 90_000`
+   * (a 90 s grace window so Playwright still has time to shut down
+   * workers, flush the JSON reporter, and exit on its own when
+   * `globalTimeout` fires).
+   *
+   * The SIGKILL belt is necessary because Playwright worker-pool
+   * shutdown can deadlock on multi-engine multi-viewport runs (notably
+   * WebKit on Windows). When that happens the parent process exits with
+   * code 4 (RUNTIME_ERROR) and writes a `summary.json` whose
+   * `hangDetected: true` flag documents the SIGKILL — so a consumer
+   * scripting on summary.json can detect and report the hang
+   * deterministically.
+   *
+   * If unset, preflight picks a cadence-aware default:
+   *   --smoke    →  5 min  (300_000 ms)
+   *   --visual   → 30 min  (1_800_000 ms)
+   *   default    → 30 min  (1_800_000 ms)
+   *   --release  → 60 min  (3_600_000 ms — Lighthouse + NVDA inflate)
+   *
+   * Setting this explicitly overrides the cadence default for ALL
+   * cadences in the same run. To set per-cadence caps, branch on
+   * `process.argv` in your `preflight.config.ts` before returning.
+   */
+  runnerTimeoutMs?: number;
 }
 
 /**
@@ -293,4 +322,5 @@ export interface ResolvedPreflightConfig {
   releaseOnlyPatterns?: string[];
   htmlValidateRaw?: boolean;
   playwrightOverrides?: Partial<PlaywrightTestConfig>;
+  runnerTimeoutMs?: number;
 }

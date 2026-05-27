@@ -31,6 +31,7 @@ const KNOWN_KEYS = new Set<keyof PreflightConfig>([
   'releaseOnlyPatterns',
   'htmlValidateRaw',
   'playwrightOverrides',
+  'runnerTimeoutMs',
 ]);
 
 const KNOWN_NETWORK_PRESET_NAMES = new Set(['3g-slow', '3g-fast', '4g', 'wifi']);
@@ -330,6 +331,22 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     htmlValidateRaw = cfg.htmlValidateRaw;
   }
 
+  let runnerTimeoutMs: number | undefined;
+  if (cfg.runnerTimeoutMs !== undefined) {
+    if (
+      typeof cfg.runnerTimeoutMs !== 'number' ||
+      !Number.isFinite(cfg.runnerTimeoutMs) ||
+      cfg.runnerTimeoutMs <= 0
+    ) {
+      throw new PreflightConfigError(
+        'runnerTimeoutMs, if set, must be a positive finite number of milliseconds ' +
+          '(the wall-clock cap on the whole Playwright run). preflight applies this as ' +
+          "Playwright's globalTimeout and SIGKILLs the child after a 90 s grace window."
+      );
+    }
+    runnerTimeoutMs = cfg.runnerTimeoutMs;
+  }
+
   let releaseOnlyPatterns: ResolvedPreflightConfig['releaseOnlyPatterns'];
   if (cfg.releaseOnlyPatterns !== undefined) {
     if (
@@ -363,6 +380,7 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     releaseOnlyPatterns,
     htmlValidateRaw,
     playwrightOverrides: cfg.playwrightOverrides as ResolvedPreflightConfig['playwrightOverrides'],
+    runnerTimeoutMs,
   };
 }
 
