@@ -21,6 +21,11 @@ work off the per-push hot path.
   (Chromium-only), and html-validate strict markup linting. Each new
   spec gates itself on platform / engine / project so a single-shot
   `--release` does not multiply across the full engine x viewport matrix.
+  The NVDA spec captures NVDA's spoken phrases under
+  `.preflight/last-run/nvda-spoken-phrases.json` as a SOFT artefact —
+  pass/fail is gated on NVDA starting and walking the routes without
+  throwing, not on phrase-log content (which depends on the consumer's
+  speech-synth driver and produces false positives if asserted on).
 - `--links` flag: shells out to the lychee CLI for link checking,
   standalone (does not run Playwright at all). Respects a
   `lychee.toml` in the consumer project root.

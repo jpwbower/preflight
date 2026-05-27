@@ -69,7 +69,7 @@ if (!isRelease) {
 
   test.describe('lighthouse', () => {
     for (const route of cfg.routes) {
-      test(`budgets on ${route.name} (${route.path})`, async (_args, testInfo) => {
+      test(`budgets on ${route.name} (${route.path})`, async ({}, testInfo) => {
         test.skip(
           testInfo.project.name !== SUPPORTED_PROJECT,
           `Lighthouse spec only runs on project "${SUPPORTED_PROJECT}" (Chromium-only).`
