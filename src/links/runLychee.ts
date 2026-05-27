@@ -72,15 +72,27 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   const outputPath = path.join(lastRunDir, 'lychee-output.txt');
   const outputStream = createWriteStream(outputPath, { flags: 'w' });
 
-  let mainResult = await spawnLycheeMain('lychee', args, consumerCwd, outputStream);
+  let mainResult = await spawnLycheeMain('lychee', args, consumerCwd, outputStream, false);
   // Windows scoop/npm shims register lychee as `lychee.cmd`. Node's
-  // `spawn` without `shell: true` doesn't resolve PATHEXT, so a
-  // .cmd-only install ENOENTs even though lychee IS on PATH. Retry
-  // once with the explicit `.cmd` extension on Windows. Shape (a)
-  // from the Chunk 5 known-issue analysis — safer than `shell: true`
-  // (no shell-injection surface on the URL arg list).
+  // `spawn` without `shell: true` won't resolve PATHEXT, AND modern
+  // Node (22.4+, post CVE-2024-27980) refuses to launch a .cmd file
+  // even when named explicitly without `shell: true` — it surfaces
+  // as EINVAL. So on Windows we retry through the shell, which lets
+  // cmd.exe resolve `lychee` to `lychee.cmd` via PATHEXT.
+  //
+  // Trade-off: shell:true with an args array trips Node's DEP0190
+  // deprecation warning ("arguments are not escaped, only
+  // concatenated") and exposes the args list to cmd.exe parsing
+  // (& | < > ^ etc. would be interpreted). preflight's args are
+  // config-derived: route.path is validated to start with `/`, and
+  // baseURL is validated as a URL — neither rejects all cmd
+  // metacharacters, so the surface is non-zero. The threat model is
+  // "consumer attacks their own machine via their own config", which
+  // is acceptable for the .cmd-shim fallback only. The .exe primary
+  // path (default for cargo / brew installs and any consumer
+  // manually placing the binary) never goes through the shell.
   if (mainResult.notFound && process.platform === 'win32') {
-    mainResult = await spawnLycheeMain('lychee.cmd', args, consumerCwd, outputStream);
+    mainResult = await spawnLycheeMain('lychee', args, consumerCwd, outputStream, true);
   }
   if (mainResult.notFound) {
     process.stderr.write(
@@ -155,16 +167,15 @@ const LYCHEE_MIN_MINOR = 13;
 async function checkLycheeVersion(): Promise<void> {
   // Capture BOTH streams — some pre-0.10 lychee builds wrote --version
   // output to stderr. Reviewer-flagged R5.
-  let captured = await probeLycheeVersion('lychee');
-  // Same Windows .cmd-shim retry as the main spawn path. If the first
-  // probe ENOENTed silently and we're on Windows, try lychee.cmd —
-  // otherwise the version-check noise floor stays at "did not find
-  // lychee" (silently swallowed) and the main spawn warning would
-  // fire below for the consumer; but if the .cmd retry on the MAIN
-  // spawn would succeed, this probe needs to succeed too or the
-  // version warning won't surface.
+  let captured = await probeLycheeVersion('lychee', false);
+  // Same Windows .cmd-shim retry as the main spawn path. The version
+  // probe must use the same launch shape as the main spawn would —
+  // otherwise the version warning silently no-ops on machines where
+  // the main spawn succeeds via the .cmd retry. The `--version`
+  // invocation passes no consumer-derived args, so shell:true here
+  // has zero injection surface.
   if (!captured && process.platform === 'win32') {
-    captured = await probeLycheeVersion('lychee.cmd');
+    captured = await probeLycheeVersion('lychee', true);
   }
   if (!captured) return;
   const m = /^lychee\s+(\d+)\.(\d+)\.(\d+)/m.exec(captured);
@@ -190,14 +201,15 @@ async function checkLycheeVersion(): Promise<void> {
 /**
  * One-shot lychee version probe. Returns the captured stdout+stderr,
  * or empty string on any failure (ENOENT / spawn error / no output).
- * The caller decides whether to retry with `lychee.cmd` on Windows.
+ * The caller decides whether to retry through the shell on Windows
+ * (needed for .cmd-shim installs).
  */
-async function probeLycheeVersion(command: string): Promise<string> {
+async function probeLycheeVersion(command: string, useShell: boolean): Promise<string> {
   let captured = '';
   await new Promise<void>((resolve) => {
     let child;
     try {
-      child = spawn(command, ['--version']);
+      child = spawn(command, ['--version'], { shell: useShell });
     } catch {
       resolve();
       return;
@@ -230,12 +242,13 @@ async function spawnLycheeMain(
   command: string,
   args: string[],
   cwd: string,
-  outputStream: NodeJS.WritableStream
+  outputStream: NodeJS.WritableStream,
+  useShell: boolean
 ): Promise<SpawnLycheeMainResult> {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(command, args, { cwd });
+      child = spawn(command, args, { cwd, shell: useShell });
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
