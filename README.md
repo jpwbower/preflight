@@ -94,7 +94,7 @@ preflight's WebKit project is engine-close, not behaviour-identical to iOS Safar
 | 0    | All checks passed |
 | 1    | Test failure (assertion / smoke / a11y violation at fail-threshold) |
 | 2    | Config error (your `preflight.config.ts` is invalid) |
-| 3    | Environment error (Playwright browsers missing — run `npx playwright install`) |
+| 3    | Environment error (preflight's `dist/` missing, or `@playwright/test` peer dep not installed) |
 | 4    | Runtime error (uncaught throw in the preflight runner) |
 
 `--ci` flips: console **warnings** escalate to failures alongside errors.
@@ -152,7 +152,7 @@ These are the rough edges to know about before you wire preflight into CI.
 
 - **Playwright WebKit on Windows + localhost IPv6.** Some Windows 11 configurations do not route WebKit's `localhost` to IPv4. If WebKit tests cannot connect but Chromium/Firefox work, force IPv4: `baseURL: 'http://127.0.0.1:<port>'`.
 
-- **Disabled axe rules are logged loudly at the top of every report.** This is intentional anti-compliance-theatre. Do not silence the warning by editing the report — silence it by removing the suppression from your config.
+- **Disabled axe rules are written to `.preflight/last-run/disabled-axe-rules.md` on every run, with the consumer-supplied reason.** preflight refuses to load a config that disables an axe rule without a `reason` string — anti-compliance-theatre by design. Treat that file as a review artefact: a CI check that fails when its contents change is a cheap way to catch silent rule additions.
 
 - **Firefox does not support mobile / touch emulation.** Playwright's Firefox build does not honour `isMobile`, `hasTouch`, or `deviceScaleFactor` on `newContext`. preflight still runs the Firefox engine at every viewport _size_ (so responsive CSS is exercised), but `firefox__mobile-*` projects use a desktop UA and no touch flag. For real mobile-Firefox QA, use a real device.
 

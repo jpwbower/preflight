@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,8 +90,8 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     PREFLIGHT_NO_REUSE: args.noReuse ? '1' : '0',
     PREFLIGHT_VERBOSE: args.verbose ? '1' : '0',
     PREFLIGHT_SMOKE: args.smoke ? '1' : '0',
-    PREFLIGHT_ONLY: args.only ?? '',
-    PREFLIGHT_VERSION: opts.preflightVersion,
+    // PREFLIGHT_VERSION is intentionally NOT forwarded — writeSummary in the
+    // parent process takes the version directly, so the child does not need it.
   };
   if (args.debug) env.PWDEBUG = '1';
   if (args.reporter) env.PREFLIGHT_REPORTER = args.reporter;
@@ -109,7 +109,8 @@ export async function run(opts: RunOptions): Promise<RunResult> {
 
   const exitCode = await runPlaywright(cliArgs, env, consumerCwd);
 
-  await writeSummary(lastRunDir, cfg, exitCode, opts.preflightVersion);
+  const totals = await tallyResults(jsonFile);
+  await writeSummary(lastRunDir, cfg, exitCode, opts.preflightVersion, totals);
 
   // Convenience symlink: .preflight/last-run/index.html → html-report/index.html.
   // Symlink creation on Windows requires elevation or Developer Mode; if it
@@ -167,6 +168,13 @@ interface SummaryJson {
   version: string;
   finishedAt: string;
   exitCode: number;
+  totals: {
+    passed: number;
+    failed: number;
+    skipped: number;
+    flaky: number;
+    expected: number;
+  };
   config: {
     baseURL: string;
     routesCount: number;
@@ -178,16 +186,38 @@ interface SummaryJson {
   disabledAxeRules: { rule: string; reason: string }[];
 }
 
+async function tallyResults(jsonFile: string): Promise<SummaryJson['totals']> {
+  const empty = { passed: 0, failed: 0, skipped: 0, flaky: 0, expected: 0 };
+  try {
+    const raw = await readFile(jsonFile, 'utf8');
+    const parsed = JSON.parse(raw) as {
+      stats?: { expected?: number; unexpected?: number; skipped?: number; flaky?: number };
+    };
+    const stats = parsed.stats ?? {};
+    return {
+      passed: stats.expected ?? 0,
+      failed: stats.unexpected ?? 0,
+      skipped: stats.skipped ?? 0,
+      flaky: stats.flaky ?? 0,
+      expected: stats.expected ?? 0,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 async function writeSummary(
   outDir: string,
   cfg: ResolvedPreflightConfig,
   exitCode: number,
-  preflightVersion: string
+  preflightVersion: string,
+  totals: SummaryJson['totals']
 ): Promise<void> {
   const summary: SummaryJson = {
     version: preflightVersion,
     finishedAt: new Date().toISOString(),
     exitCode,
+    totals,
     config: {
       baseURL: cfg.baseURL,
       routesCount: cfg.routes.length,
@@ -205,12 +235,14 @@ async function linkOrRedirect(lastRunDir: string, htmlReportDir: string): Promis
   const target = path.join(lastRunDir, 'index.html');
   const reportIndex = path.join(htmlReportDir, 'index.html');
   if (!existsSync(reportIndex)) return;
+  const rel = path.relative(lastRunDir, reportIndex).split(path.sep).join('/');
   try {
     if (existsSync(target)) await rm(target);
-    await symlink(reportIndex, target, 'file');
+    // Use the relative path as the symlink target so the link survives if
+    // the user copies or moves .preflight/last-run/ wholesale.
+    await symlink(rel, target, 'file');
   } catch {
     // Windows non-elevated case: write a redirect stub.
-    const rel = path.relative(lastRunDir, reportIndex).split(path.sep).join('/');
     const redirect = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${rel}"><title>preflight last-run report</title><p>Opening <a href="${rel}">${rel}</a> &hellip;</p>`;
     await writeFile(target, redirect, 'utf8');
   }

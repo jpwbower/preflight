@@ -31,13 +31,15 @@ export function buildViewportProfiles(): Record<ViewportName, ViewportProfile> {
 
   return {
     'mobile-320': {
+      // No descriptor in Playwright `devices` maps to 320 wide; this profile
+      // exists to exercise responsive breakpoints on the smallest common
+      // viewport. Don't pin a vendor UA — let the engine supply its own
+      // mobile UA so the profile is engine-agnostic.
       name: 'mobile-320',
       viewport: { width: 320, height: 568 },
       deviceScaleFactor: 2,
       isMobile: true,
       hasTouch: true,
-      userAgent:
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
     },
     'mobile-375': {
       name: 'mobile-375',

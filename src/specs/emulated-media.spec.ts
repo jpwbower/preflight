@@ -5,10 +5,12 @@ import { loadPreflightConfig } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
 const route = cfg.routes[0]!;
+const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'];
 
 test.describe('emulated media', () => {
+  test.skip(isSmoke, '--smoke runs only the smoke + a11y specs');
   test(`prefers-reduced-motion: reduce on ${route.name}`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(route.path, { waitUntil: 'domcontentloaded' });
@@ -32,10 +34,10 @@ test.describe('emulated media', () => {
 
       // Sweep axe under this scheme — contrast issues often only show up
       // in dark mode.
-      const results = await new AxeBuilder({ page })
-        .withTags(WCAG_TAGS)
-        .disableRules(cfg.axeDisabled.map((d) => d.rule))
-        .analyze();
+      const builder = new AxeBuilder({ page }).withTags(WCAG_TAGS);
+      const disabled = cfg.axeDisabled.map((d) => d.rule);
+      if (disabled.length > 0) builder.disableRules(disabled);
+      const results = await builder.analyze();
       const real = results.violations.filter((v: Result) => v.id !== 'color-contrast'); // contrast handled in main a11y spec
       expect(real, `axe violations under ${scheme} mode`).toEqual([]);
     });
@@ -91,10 +93,10 @@ test.describe('emulated media', () => {
 
     // Print stylesheets often hide nav/cookie banners; axe sweep ensures
     // what remains is still navigable.
-    const results = await new AxeBuilder({ page })
-      .withTags(WCAG_TAGS)
-      .disableRules(cfg.axeDisabled.map((d) => d.rule))
-      .analyze();
+    const builder = new AxeBuilder({ page }).withTags(WCAG_TAGS);
+    const disabled = cfg.axeDisabled.map((d) => d.rule);
+    if (disabled.length > 0) builder.disableRules(disabled);
+    const results = await builder.analyze();
     expect(results.violations, 'axe violations under print media').toEqual([]);
   });
 });

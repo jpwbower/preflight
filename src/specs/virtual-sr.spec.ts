@@ -3,6 +3,7 @@ import { loadPreflightConfig } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
 const route = cfg.routes[0]!;
+const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
 
 /**
  * Accessibility-name sanity sweep — the "virtual screen reader" check.
@@ -24,6 +25,7 @@ const route = cfg.routes[0]!;
  * with no name — without that friction.
  */
 test.describe('a11y tree walk (virtual screen reader equivalent)', () => {
+  test.skip(isSmoke, '--smoke runs only the smoke + a11y specs');
   test(`accessible-name sweep on ${route.name}`, async ({ page }) => {
     await page.goto(route.path, { waitUntil: 'domcontentloaded' });
     if (cfg.readyMarker) await page.waitForSelector(cfg.readyMarker, { state: 'attached', timeout: 30_000 });

@@ -42,30 +42,3 @@ export function renderDisabledRulesMarkdown(disabled: PreflightAxeDisabled[]): s
   ].join('\n');
 }
 
-export function renderDisabledRulesHtmlHeader(disabled: PreflightAxeDisabled[]): string {
-  if (disabled.length === 0) return '';
-  const items = disabled
-    .map(
-      (d) =>
-        `<li><code>${escapeHtml(d.rule)}</code> &mdash; ${escapeHtml(d.reason)}</li>`
-    )
-    .join('');
-  return [
-    '<div style="background:#ffe9a8;border:2px solid #b07c00;padding:1em;margin:1em 0;font-family:sans-serif;">',
-    '<h2 style="margin-top:0;">Disabled axe rules in this run</h2>',
-    '<p>These accessibility rules have been suppressed in <code>preflight.config.ts</code>.',
-    'preflight surfaces them on every report so they cannot silently hide. ',
-    'If you do not recognise a suppression below, treat it as a regression and re-enable.</p>',
-    `<ul>${items}</ul>`,
-    '</div>',
-  ].join('');
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}

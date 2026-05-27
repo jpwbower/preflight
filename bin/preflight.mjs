@@ -83,8 +83,16 @@ async function loadConsumerConfig(configPath, consumerCwd) {
       const loaded = await tsx.tsImport(configUrl, import.meta.url);
       return loaded.default ?? loaded;
     } catch (err) {
+      // Validation errors thrown FROM the consumer's config body (e.g. they
+      // called defineConfig with a bad value) must reach the user verbatim.
+      // Re-wrapping them as "failed to load TypeScript config ... Make sure
+      // tsx is installed" is misleading — tsx is fine.
+      const msg = err && err.message ? err.message : String(err);
+      if (err && (err.name === 'PreflightConfigError' || msg.startsWith('preflight config error:'))) {
+        throw err;
+      }
       throw new ConfigError(
-        `failed to load TypeScript config ${configPath}: ${err && err.message ? err.message : err}\n` +
+        `failed to load TypeScript config ${configPath}: ${msg}\n` +
           'Make sure tsx is installed (preflight pulls it in automatically — try `npm i`).'
       );
     }
@@ -139,6 +147,18 @@ async function main() {
   const consumerCwd = process.cwd();
   const version = readSelfVersion();
 
+  // --help and --version are answerable without dist/. Sniff for them before
+  // checking dist so a broken install can still print its version.
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+    printHelpAndExit();
+    return EXIT.OK;
+  }
+  if (rawArgs.includes('--version') || rawArgs.includes('-V')) {
+    process.stdout.write(`preflight ${version}\n`);
+    return EXIT.OK;
+  }
+
   const distAvailable = existsSync(path.join(__dirname, '..', 'dist', 'cli', 'parseArgs.js'));
   if (!distAvailable) {
     process.stderr.write(
@@ -149,16 +169,7 @@ async function main() {
   }
 
   const { parseArgs } = require_('../dist/cli/parseArgs.js');
-  const parsed = parseArgs(process.argv.slice(2));
-
-  if (parsed.command === 'help') {
-    printHelpAndExit();
-    return EXIT.OK;
-  }
-  if (parsed.command === 'version') {
-    process.stdout.write(`preflight ${version}\n`);
-    return EXIT.OK;
-  }
+  const parsed = parseArgs(rawArgs);
   if (parsed.unknown.length > 0) {
     process.stderr.write(
       `preflight: unknown argument(s): ${parsed.unknown.join(' ')}\n` +

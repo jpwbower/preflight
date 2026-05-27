@@ -166,7 +166,7 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
       if (typeof e.reason !== 'string' || e.reason.length === 0) {
         throw new PreflightConfigError(
           `axeDisabled[${i}].reason must be a non-empty string. ` +
-            'Disabled axe rules require a justification — they render in the report header.'
+            'Disabled axe rules require a justification — they are written to .preflight/last-run/disabled-axe-rules.md on every run.'
         );
       }
       return { rule: e.rule, reason: e.reason };

@@ -45,6 +45,45 @@ const engineUseMap: Record<EngineName, ReturnType<typeof devices.valueOf> extend
   webkit: devices['Desktop Safari']!,
 };
 
+/**
+ * Build the reporter array.
+ *
+ * preflight always emits an HTML report + a JSON report into
+ * .preflight/last-run/ so reviewers have stable artefacts regardless of
+ * console reporter choice. Under --ci we additionally emit a JUnit XML.
+ * The console reporter is `list` by default; PREFLIGHT_REPERATER can
+ * override to line/list/html/json/junit.
+ *
+ * We dedupe: if the user requests `--reporter=html` we DO NOT add a second
+ * HTML reporter, since Playwright doesn't tolerate two writing to the
+ * same outputFolder.
+ */
+function buildReporters(): NonNullable<PlaywrightTestConfig['reporter']> {
+  const requested = (process.env.PREFLIGHT_REPORTER ?? 'list').toLowerCase();
+  const reporters: NonNullable<PlaywrightTestConfig['reporter']> = [];
+
+  // Console reporter (skip if user requested one of the artefact reporters
+  // we add unconditionally — let those run alone, no console duplication).
+  if (requested === 'line' || requested === 'list') {
+    reporters.push([requested]);
+  } else if (requested === 'html' || requested === 'json' || requested === 'junit') {
+    // The user wants only the artefact reporter; we still add it below, just
+    // skip a console one to keep stdout clean.
+  } else {
+    reporters.push(['list']);
+  }
+
+  reporters.push([
+    'html',
+    { open: 'never', outputFolder: process.env.PREFLIGHT_HTML_REPORT_DIR },
+  ]);
+  reporters.push(['json', { outputFile: process.env.PREFLIGHT_JSON_FILE }]);
+  if (isCi) {
+    reporters.push(['junit', { outputFile: process.env.PREFLIGHT_JUNIT_FILE }]);
+  }
+  return reporters;
+}
+
 function buildProjects(): PlaywrightTestConfig['projects'] {
   const projects: NonNullable<PlaywrightTestConfig['projects']> = [];
   for (const engine of cfg.engines) {
@@ -92,18 +131,7 @@ const config: PlaywrightTestConfig = defineConfig({
   forbidOnly: isCi,
   retries: isCi ? 2 : 0,
   workers: isCi ? 2 : undefined,
-  reporter: isCi
-    ? [
-        ['list'],
-        ['html', { open: 'never', outputFolder: process.env.PREFLIGHT_HTML_REPORT_DIR }],
-        ['junit', { outputFile: process.env.PREFLIGHT_JUNIT_FILE }],
-        ['json', { outputFile: process.env.PREFLIGHT_JSON_FILE }],
-      ]
-    : [
-        [process.env.PREFLIGHT_REPORTER ?? 'list'],
-        ['html', { open: 'never', outputFolder: process.env.PREFLIGHT_HTML_REPORT_DIR }],
-        ['json', { outputFile: process.env.PREFLIGHT_JSON_FILE }],
-      ],
+  reporter: buildReporters(),
 
   use: {
     baseURL: cfg.baseURL,

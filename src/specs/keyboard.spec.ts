@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { loadPreflightConfig } from './_helpers.js';
 
 const cfg = loadPreflightConfig();
+const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
 
 /**
  * Pick a representative route — first one configured — and walk the focus
@@ -16,6 +17,7 @@ const cfg = loadPreflightConfig();
 const representativeRoute = cfg.routes[0]!;
 
 test.describe('keyboard', () => {
+  test.skip(isSmoke, '--smoke runs only the smoke + a11y specs');
   test(`tab walk on ${representativeRoute.name}`, async ({ page, browserName }) => {
     await page.goto(representativeRoute.path, { waitUntil: 'domcontentloaded' });
     if (cfg.readyMarker) {
@@ -69,10 +71,12 @@ test.describe('keyboard', () => {
       const a = document.activeElement as HTMLElement | null;
       if (!a || a === document.body) return true; // body focus has no expected indicator
       const cs = getComputedStyle(a);
+      // Border is unreliable as a focus signal — native <button>/<input>
+      // ship with non-zero borders unfocused, so a border check passes even
+      // when there is no :focus rule. Only outline + boxShadow count.
       const outline = cs.outlineStyle !== 'none' && cs.outlineWidth !== '0px';
-      const ring = cs.boxShadow && cs.boxShadow !== 'none';
-      const border = cs.borderTopWidth !== '0px' || cs.borderBottomWidth !== '0px';
-      return outline || ring || border;
+      const ring = cs.boxShadow !== '' && cs.boxShadow !== 'none';
+      return outline || ring;
     });
     expect(
       hasFocusIndicator,

@@ -124,7 +124,7 @@ export function helpText(): string {
     '  0  all checks passed',
     '  1  test failure',
     '  2  config error',
-    '  3  environment error (e.g. Playwright browsers missing)',
+    '  3  environment error (preflight dist/ missing or @playwright/test peer dep not installed)',
     '  4  runtime error',
     '',
   ].join('\n');
