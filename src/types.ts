@@ -213,6 +213,32 @@ export interface PreflightConfig {
   networkPreset?: PreflightNetworkPreset;
 
   /**
+   * Run html-validate against the raw HTTP response body (via Node `fetch`)
+   * in ADDITION to the post-hydration DOM pass, on `--release`. Default
+   * false. When true, each route produces two independent test cases:
+   * `markup on $name (post-hydration)` and `markup on $name (raw response)`.
+   *
+   * Closes the carry-forward "html-validate runs against post-hydration
+   * DOM only" — the post-hydration pass misses SSR markup bugs that the
+   * client rewrites before assertion. The raw-response pass catches
+   * them.
+   *
+   * Auth interaction — by design: the raw fetch does NOT forward
+   * `cfg.auth` storageState cookies (they live in the browser context,
+   * not in Node `fetch`). If a route requires auth, the raw fetch
+   * receives the unauthenticated response (login page, 401, etc.) —
+   * which IS the signal. Surfacing the login flow's markup is exactly
+   * what makes raw-response useful for authenticated routes, since
+   * post-hydration validation never reaches the unauthenticated first
+   * paint. Do not file as a bug.
+   *
+   * Redirects: Node `fetch` follows by default (`redirect: 'follow'`).
+   * preflight inherits that — matches what html-validate would see in a
+   * browser.
+   */
+  htmlValidateRaw?: boolean;
+
+  /**
    * Additional spec globs to treat as release-only — appended to
    * preflight's built-in release-only spec list (nvda, lighthouse,
    * html-validate) and applied via project-level `testIgnore`. Matched
@@ -257,5 +283,6 @@ export interface ResolvedPreflightConfig {
   auth?: PreflightAuth;
   networkPreset?: PreflightNetworkPreset;
   releaseOnlyPatterns?: string[];
+  htmlValidateRaw?: boolean;
   playwrightOverrides?: Partial<PlaywrightTestConfig>;
 }

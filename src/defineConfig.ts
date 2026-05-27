@@ -29,6 +29,7 @@ const KNOWN_KEYS = new Set<keyof PreflightConfig>([
   'auth',
   'networkPreset',
   'releaseOnlyPatterns',
+  'htmlValidateRaw',
   'playwrightOverrides',
 ]);
 
@@ -317,6 +318,18 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     networkPreset = validateNetworkPreset(cfg.networkPreset);
   }
 
+  let htmlValidateRaw: boolean | undefined;
+  if (cfg.htmlValidateRaw !== undefined) {
+    if (typeof cfg.htmlValidateRaw !== 'boolean') {
+      throw new PreflightConfigError(
+        'htmlValidateRaw, if set, must be a boolean. ' +
+          'When true, html-validate fetches each route via Node fetch and validates the raw response body ' +
+          'in addition to the post-hydration DOM pass.'
+      );
+    }
+    htmlValidateRaw = cfg.htmlValidateRaw;
+  }
+
   let releaseOnlyPatterns: ResolvedPreflightConfig['releaseOnlyPatterns'];
   if (cfg.releaseOnlyPatterns !== undefined) {
     if (
@@ -348,6 +361,7 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     auth,
     networkPreset,
     releaseOnlyPatterns,
+    htmlValidateRaw,
     playwrightOverrides: cfg.playwrightOverrides as ResolvedPreflightConfig['playwrightOverrides'],
   };
 }
