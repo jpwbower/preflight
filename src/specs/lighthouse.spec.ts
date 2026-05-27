@@ -37,9 +37,25 @@ const defaultThresholds = {
   seo: 90,
 };
 
-// Merge per-category so the consumer can override one threshold without
-// having to restate the others.
-const thresholds = { ...defaultThresholds, ...(cfg.lighthouseThresholds ?? {}) };
+// Suite-wide thresholds: defaults merged with cfg.lighthouseThresholds.
+// Per-route thresholds layer ON TOP of this — see thresholdsForRoute().
+const suiteThresholds = { ...defaultThresholds, ...(cfg.lighthouseThresholds ?? {}) };
+
+/**
+ * Resolve the effective thresholds for a route. Layering, top-down:
+ *   1. defaults (perf 75, a11y 95, best-practices 85, seo 90)
+ *   2. cfg.lighthouseThresholds (suite-wide)
+ *   3. route.lighthouseThresholds (per-route)
+ * Later layers override earlier ones per-category, so a route that
+ * specifies only `performance: 60` still inherits the other three
+ * thresholds from the suite-wide / default layers.
+ */
+function thresholdsForRoute(
+  routeOverrides?: Record<string, number | undefined>
+): Record<string, number> {
+  if (!routeOverrides) return suiteThresholds;
+  return { ...suiteThresholds, ...routeOverrides } as Record<string, number>;
+}
 
 /**
  * Allocate a free TCP port for Chromium's --remote-debugging-port.
@@ -130,7 +146,7 @@ if (!isRelease) {
           await playAudit!({
             page,
             port,
-            thresholds,
+            thresholds: thresholdsForRoute(route.lighthouseThresholds as Record<string, number | undefined> | undefined),
             // Suppress chalk-coloured noise in Playwright's reporter output
             // — failures are still surfaced via the playAudit throw.
             disableLogs: true,

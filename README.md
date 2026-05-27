@@ -175,6 +175,28 @@ These are the rough edges to know about before you wire preflight into CI.
 
 ### v0.3 additions
 
+- **Per-route `lighthouseThresholds` override.** v0.2 shipped a suite-wide
+  thresholds object; v0.3 lets a single route relax (or tighten) its own
+  budget without affecting the rest of the site. Layering, top-down:
+  defaults → suite-wide `cfg.lighthouseThresholds` → per-route
+  `route.lighthouseThresholds`. Each layer overrides the previous one
+  per-category, so a route that specifies only `{ performance: 60 }`
+  still inherits the other three thresholds from the suite-wide layer.
+
+  ```ts
+  routes: [
+    { name: 'home', path: '/' },
+    {
+      name: 'dashboard',
+      path: '/dashboard',
+      // Dashboard pulls 4 MB of charting JS — relax perf to a realistic
+      // floor for this route while keeping the rest of the site at the
+      // suite-wide default.
+      lighthouseThresholds: { performance: 50 },
+    },
+  ],
+  ```
+
 - **Authenticated routes via `cfg.auth`.** Set `cfg.auth.setup` to a path
   pointing at a JS/TS module that returns a Playwright `storageState`
   object (cookies + localStorage). preflight imports it, calls its
