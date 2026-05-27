@@ -38,6 +38,24 @@ function loadConfigFromEnv(): ResolvedPreflightConfig {
 const cfg = loadConfigFromEnv();
 const profiles = buildViewportProfiles();
 const isCi = process.env.PREFLIGHT_CI === '1';
+const isRelease = process.env.PREFLIGHT_RELEASE === '1';
+
+/**
+ * Release-only spec files. These are gated to one supported project
+ * (NVDA cannot tolerate parallel sessions; Lighthouse is Chromium-only;
+ * html-validate runs against post-hydration DOM which is engine-agnostic).
+ * We exclude the files at project level via `testIgnore` so non-supported
+ * projects never even load them — that avoids spawning a worker per project
+ * just to immediately skip from inside the test body, and (critical for
+ * NVDA) prevents the per-test `nvda` fixture from being constructed in
+ * parallel across projects, which would race on Windows kernel hooks.
+ */
+const RELEASE_ONLY_SPECS = [
+  '**/nvda.spec.js',
+  '**/lighthouse.spec.js',
+  '**/html-validate.spec.js',
+];
+const RELEASE_SUPPORTED_PROJECT = 'chromium__desktop-1280';
 
 const engineUseMap: Record<EngineName, ReturnType<typeof devices.valueOf> extends infer T ? T : never> = {
   chromium: devices['Desktop Chrome']!,
@@ -107,11 +125,22 @@ function buildProjects(): PlaywrightTestConfig['projects'] {
         if (profile.hasTouch !== undefined) useBlock.hasTouch = profile.hasTouch;
         if (profile.userAgent) useBlock.userAgent = profile.userAgent;
       }
+      const projectName = `${engine}__${vpName}`;
+      // Project-level gating for the release-only specs. Non-supported
+      // projects ignore the files entirely, which means: (a) they
+      // don't spawn a worker just to skip from inside the test body,
+      // and (b) the NVDA fixture is never constructed across multiple
+      // projects in parallel, which would race on Windows kernel
+      // hooks. Per-spec gating in the spec body is kept as a
+      // defence-in-depth (covers consumer-added playwrightOverrides).
+      const testIgnore =
+        projectName === RELEASE_SUPPORTED_PROJECT ? undefined : RELEASE_ONLY_SPECS;
       // Firefox keeps its own desktop UA + DPR — mobile/touch emulation is
       // a no-op there, but the viewport size still exercises responsive CSS.
       projects.push({
-        name: `${engine}__${vpName}`,
+        name: projectName,
         use: useBlock,
+        testIgnore,
         metadata: {
           engine,
           viewport: vpName,
@@ -130,7 +159,14 @@ const config: PlaywrightTestConfig = defineConfig({
   fullyParallel: true,
   forbidOnly: isCi,
   retries: isCi ? 2 : 0,
-  workers: isCi ? 2 : undefined,
+  // --release pins to one worker because NVDA owns the foreground app
+  // — it captures keyboard via global Windows hooks and breaks if any
+  // other process steals focus mid-test. The `testIgnore` gating
+  // prevents the *fixture* from being constructed in parallel across
+  // projects; this `workers: 1` is the second half of the same fix:
+  // it prevents other-project workers from launching browsers and
+  // stealing focus from NVDA. Both halves are required.
+  workers: isRelease ? 1 : isCi ? 2 : undefined,
   reporter: buildReporters(),
 
   use: {

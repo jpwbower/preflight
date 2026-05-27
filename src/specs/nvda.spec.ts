@@ -1,5 +1,4 @@
 import { test as plainTest } from '@playwright/test';
-import { nvdaTest } from '@guidepup/playwright';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { loadPreflightConfig } from './_helpers.js';
@@ -25,7 +24,17 @@ const isWindows = process.platform === 'win32';
  *   The whole matrix would try to run NVDA in parallel against three
  *   engines and five viewports — same kernel-hook race. We pin to
  *   chromium because Guidepup's NVDA bindings are stable there;
- *   firefox/webkit are not validated upstream.
+ *   firefox/webkit are not validated upstream. We also set
+ *   `workers: 1` for the release cadence in playwright.config so the
+ *   non-supported projects' workers don't run in parallel either.
+ *
+ * Why `@guidepup/playwright` is imported lazily inside the
+ * isRelease+isWindows branch (not at module top):
+ *   The import was previously unconditional, which means a non-release
+ *   run on Linux (where guidepup may grow a Windows-only native dep
+ *   in any future version) would crash the spec file at load time.
+ *   Lazy import keeps the failure mode clean: the spec skips, the run
+ *   continues.
  */
 
 const SUPPORTED_PROJECT = 'chromium__desktop-1280';
@@ -44,6 +53,12 @@ if (!isRelease) {
     plainTest('windows-only', () => {});
   });
 } else {
+  // Top-level await is allowed here because the package is ESM
+  // (package.json#type === 'module'). The import sits behind the
+  // isRelease + isWindows gate so non-Windows release runs never
+  // touch @guidepup/playwright.
+  const { nvdaTest } = await import('@guidepup/playwright');
+
   nvdaTest.describe.configure({ mode: 'serial', retries: 0 });
 
   nvdaTest.describe('nvda (real screen reader)', () => {
@@ -52,7 +67,9 @@ if (!isRelease) {
       async ({ page, nvda }, testInfo) => {
         // Skip non-supported projects from inside the test body —
         // `test.skip(callback)` does not receive `testInfo`, so we
-        // can't gate at describe-level.
+        // can't gate at describe-level. (The release cadence also
+        // sets `workers: 1` in playwright.config so the skipped
+        // projects don't start their NVDA fixture in parallel.)
         nvdaTest.skip(
           testInfo.project.name !== SUPPORTED_PROJECT,
           `NVDA spec only runs on project "${SUPPORTED_PROJECT}" to avoid parallel-session races.`

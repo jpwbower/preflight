@@ -88,10 +88,18 @@ jobs:
       - run: npx playwright install --with-deps
       - name: install NVDA via guidepup-setup
         shell: pwsh
+        timeout-minutes: 5
         run: |
-          # Required so the NVDA spec can actually attach to a real
-          # screen reader. Idempotent — re-running on a host with
-          # Guidepup-NVDA already installed is a no-op.
+          # @guidepup/setup is a devDep of preflight, so it should be
+          # under node_modules after `npm ci`. The defensive `npm ls`
+          # surfaces a clear error if the consumer hasn't actually
+          # installed the optional v0.2 extras; otherwise the setup
+          # script is idempotent (re-running on a host with
+          # Guidepup-NVDA already installed is a no-op).
+          if (-not (Test-Path node_modules/@guidepup/setup/bin/setup)) {
+            Write-Error "@guidepup/setup is not installed. Add it to your devDeps: npm i -D @guidepup/setup @guidepup/guidepup @guidepup/playwright"
+            exit 1
+          }
           node node_modules/@guidepup/setup/bin/setup
       - run: npx preflight --release --ci
       - if: always()
@@ -113,14 +121,16 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: install lychee
-        run: |
-          # Pinned to a known-good tag — bump deliberately, not on
-          # every CI run.
-          curl -L -o lychee.tar.gz \
-            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.20.1/lychee-x86_64-unknown-linux-gnu.tar.gz
-          tar -xzf lychee.tar.gz
-          chmod +x lychee
-          sudo mv lychee /usr/local/bin/
+        # Official action — version-pinned and handles asset-naming
+        # changes across lychee releases. Pin a specific tag (`@v2`
+        # rather than `@main`) so the install is reproducible.
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # `args: --version` is a no-op invocation that just downloads
+          # and caches the binary onto PATH. The actual link check
+          # runs in the next step via preflight, not via this action,
+          # so we don't want to double-execute lychee here.
+          args: --version
       - run: npx preflight --links
       - if: always()
         uses: actions/upload-artifact@v4

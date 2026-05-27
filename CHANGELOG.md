@@ -14,6 +14,31 @@ Lighthouse budgets, html-validate, lychee link-check, and a CI workflow
 template. Two new cadences (`--release`, `--links`) keep the heavier
 work off the per-push hot path.
 
+### R5 remediation (post-reviewer)
+
+- Release-only specs are now gated at the Playwright project level
+  via `testIgnore` rather than only inside the test body. This stops
+  non-supported projects from spawning a worker just to skip — more
+  importantly, it prevents the NVDA fixture from being constructed
+  in parallel across 15 projects, which would race on Windows kernel
+  hooks before the skip check could fire.
+- Lychee runner streams stdout/stderr directly to
+  `.preflight/last-run/lychee-output.txt` instead of accumulating in
+  V8 heap. Prevents OOM on link-checks of large sites.
+- `summary.json` now carries a `cadence` discriminator
+  (`smoke|full|release|links`) and unified nullable shape across all
+  cadences. CI consumers reading the file MUST switch on `cadence`
+  before interpreting `totals` / `engines` / `disabledAxeRules`.
+- NVDA spec lazy-imports `@guidepup/playwright` inside the
+  isRelease + isWindows branch — non-Windows release runs no longer
+  even touch the package.
+- GHA template: lychee install via official `lycheeverse/lychee-action@v2`
+  (version-pinned, handles asset-naming changes); release job has
+  `timeout-minutes: 5` on guidepup-setup plus a defensive `Test-Path`
+  check before invoking it.
+- `lighthouseThresholds.pwa` marked `@deprecated` in the type; PWA
+  category is gated behind experimental presets in Lighthouse 12+.
+
 ### Added
 
 - `--release` flag: runs the default suite PLUS real-NVDA (via Guidepup,

@@ -111,7 +111,12 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const exitCode = await runPlaywright(cliArgs, env, consumerCwd);
 
   const totals = await tallyResults(jsonFile);
-  await writeSummary(lastRunDir, cfg, exitCode, opts.preflightVersion, totals);
+  const cadence: SummaryJson['cadence'] = args.smoke
+    ? 'smoke'
+    : args.release
+      ? 'release'
+      : 'full';
+  await writeSummary(lastRunDir, cfg, exitCode, opts.preflightVersion, totals, cadence);
 
   // Convenience symlink: .preflight/last-run/index.html → html-report/index.html.
   // Symlink creation on Windows requires elevation or Developer Mode; if it
@@ -168,6 +173,9 @@ function runPlaywright(
 interface SummaryJson {
   version: string;
   finishedAt: string;
+  // Discriminator shared with the lychee cadence's summary.json so a
+  // single CI consumer can switch on it instead of inferring shape.
+  cadence: 'smoke' | 'full' | 'release' | 'links';
   exitCode: number;
   totals: {
     passed: number;
@@ -175,19 +183,19 @@ interface SummaryJson {
     skipped: number;
     flaky: number;
     expected: number;
-  };
+  } | null;
   config: {
     baseURL: string;
     routesCount: number;
-    engines: EngineName[];
-    viewports: ViewportName[];
+    engines: EngineName[] | null;
+    viewports: ViewportName[] | null;
     locale: string;
     timezoneId: string;
   };
-  disabledAxeRules: { rule: string; reason: string }[];
+  disabledAxeRules: { rule: string; reason: string }[] | null;
 }
 
-async function tallyResults(jsonFile: string): Promise<SummaryJson['totals']> {
+async function tallyResults(jsonFile: string): Promise<NonNullable<SummaryJson['totals']>> {
   const empty = { passed: 0, failed: 0, skipped: 0, flaky: 0, expected: 0 };
   try {
     const raw = await readFile(jsonFile, 'utf8');
@@ -212,11 +220,13 @@ async function writeSummary(
   cfg: ResolvedPreflightConfig,
   exitCode: number,
   preflightVersion: string,
-  totals: SummaryJson['totals']
+  totals: NonNullable<SummaryJson['totals']>,
+  cadence: SummaryJson['cadence']
 ): Promise<void> {
   const summary: SummaryJson = {
     version: preflightVersion,
     finishedAt: new Date().toISOString(),
+    cadence,
     exitCode,
     totals,
     config: {

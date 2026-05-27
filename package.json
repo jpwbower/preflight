@@ -1,6 +1,6 @@
 {
   "name": "preflight",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-only web-assurance scaffolding for any web project. Runs Playwright (Chromium/Firefox/WebKit) plus axe-core, accessible-name sweep, real-NVDA (via Guidepup on --release, opt-in), Lighthouse budgets, html-validate, and lychee link-check against your dev server, with no SaaS dependency.",
   "license": "MIT",
   "author": "preflight contributors",

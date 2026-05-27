@@ -40,12 +40,18 @@ export interface PreflightAxeDisabled {
  * Lighthouse score thresholds for the `--release` cadence. Each value is
  * the MINIMUM acceptable score (0–100). Categories above the threshold
  * pass; below fails. Defaults: perf 75, a11y 95, best-practices 85, seo 90.
+ *
+ * `pwa` is accepted for backwards compatibility with older Lighthouse
+ * configurations, but the PWA category is deprecated in Lighthouse 12+
+ * (and may produce no score in Lighthouse 13+, in which case the
+ * threshold is silently a no-op). Avoid relying on it for new configs.
  */
 export interface PreflightLighthouseThresholds {
   performance?: number;
   accessibility?: number;
   'best-practices'?: number;
   seo?: number;
+  /** @deprecated PWA category is gated behind experimental presets in Lighthouse 12+. */
   pwa?: number;
 }
 

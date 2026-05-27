@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { createWriteStream, existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ResolvedPreflightConfig } from '../types.js';
@@ -61,8 +61,12 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
     process.stderr.write(`[preflight] lychee: launching: lychee ${args.join(' ')}\n`);
   }
 
-  let stdoutCapture = '';
-  let stderrCapture = '';
+  // Pipe stdout/stderr straight to disk so a large-site sweep (lychee
+  // can emit tens of MB on a thousand-link crawl) doesn't accumulate
+  // in V8 heap and OOM the parent. The live tee to process.stdout
+  // preserves the user's terminal feedback; the file is the artefact.
+  const outputPath = path.join(lastRunDir, 'lychee-output.txt');
+  const outputStream = createWriteStream(outputPath, { flags: 'w' });
 
   const exitCode = await new Promise<number>((resolve) => {
     let child;
@@ -74,18 +78,17 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
           `  ${err instanceof Error ? err.message : String(err)}\n` +
           'Install: https://lychee.cli.rs/installation/\n'
       );
+      outputStream.end();
       resolve(3);
       return;
     }
     child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stdoutCapture += text;
-      process.stdout.write(text);
+      outputStream.write(chunk);
+      process.stdout.write(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderrCapture += text;
-      process.stderr.write(text);
+      outputStream.write(chunk);
+      process.stderr.write(chunk);
     });
     child.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'ENOENT') {
@@ -95,43 +98,45 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
             '  (e.g. `cargo install lychee`, `brew install lychee`, ' +
             '`scoop install lychee`)\n'
         );
+        outputStream.end();
         resolve(3);
         return;
       }
       process.stderr.write(`[preflight] lychee: spawn error: ${err.message}\n`);
+      outputStream.end();
       resolve(4);
     });
     child.on('exit', (code) => {
-      resolve(code ?? 1);
+      outputStream.end(() => resolve(code ?? 1));
     });
   });
 
-  // Persist the captured output so a CI job can attach it without
-  // re-running lychee. The summary.json mirrors what the standard
-  // `run` path emits, so consumers see a uniform artefact shape
-  // across cadences.
-  await writeFile(
-    path.join(lastRunDir, 'lychee-output.txt'),
-    stdoutCapture + (stderrCapture ? `\n--- stderr ---\n${stderrCapture}` : ''),
-    'utf8'
-  );
+  // Unified summary schema across cadences. The discriminator is
+  // `cadence`; consumers branching on shape MUST switch on it. Fields
+  // that only apply to one cadence are written as `null` rather than
+  // omitted so the JSON keyspace is stable and downstream tooling
+  // doesn't need to handle two different shapes for one path.
+  const summary = {
+    version: opts.preflightVersion,
+    finishedAt: new Date().toISOString(),
+    cadence: 'links' as const,
+    exitCode,
+    totals: null, // not applicable to the links cadence — no test-runner
+    config: {
+      baseURL: config.baseURL,
+      routesSeeded: config.routes.length,
+      routesCount: config.routes.length,
+      engines: null,
+      viewports: null,
+      locale: config.locale,
+      timezoneId: config.timezoneId,
+    },
+    disabledAxeRules: null,
+    lycheeConfigUsed: existsSync(consumerToml) ? consumerToml : null,
+  };
   await writeFile(
     path.join(lastRunDir, 'summary.json'),
-    JSON.stringify(
-      {
-        version: opts.preflightVersion,
-        finishedAt: new Date().toISOString(),
-        cadence: 'links',
-        exitCode,
-        config: {
-          baseURL: config.baseURL,
-          routesSeeded: config.routes.length,
-        },
-        lycheeConfigUsed: existsSync(consumerToml) ? consumerToml : null,
-      },
-      null,
-      2
-    ),
+    JSON.stringify(summary, null, 2),
     'utf8'
   );
 

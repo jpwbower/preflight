@@ -41,7 +41,26 @@ const defaultThresholds = {
 // having to restate the others.
 const thresholds = { ...defaultThresholds, ...(cfg.lighthouseThresholds ?? {}) };
 
+/**
+ * Allocate a free TCP port for Chromium's --remote-debugging-port.
+ *
+ * Note: there is a TOCTOU race between `server.close()` and
+ * `chromium.launch()` — another process can grab the port in the
+ * window between. In practice this is extremely rare (release runs
+ * are serialised and Playwright workers don't fight for ports
+ * themselves), and the failure mode is loud (Chromium fails to start
+ * and the test errors immediately). If you hit it repeatedly,
+ * reserve a fixed port via PREFLIGHT_LIGHTHOUSE_PORT.
+ */
 async function findFreePort(): Promise<number> {
+  const fixed = process.env.PREFLIGHT_LIGHTHOUSE_PORT;
+  if (fixed) {
+    const n = Number(fixed);
+    if (!Number.isInteger(n) || n <= 0 || n > 65535) {
+      throw new Error(`PREFLIGHT_LIGHTHOUSE_PORT="${fixed}" is not a valid port number.`);
+    }
+    return n;
+  }
   const { createServer } = await import('node:net');
   return new Promise((resolve, reject) => {
     const server = createServer();
