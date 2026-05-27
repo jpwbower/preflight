@@ -72,47 +72,26 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   const outputPath = path.join(lastRunDir, 'lychee-output.txt');
   const outputStream = createWriteStream(outputPath, { flags: 'w' });
 
+  let mainResult = await spawnLycheeMain('lychee', args, consumerCwd, outputStream);
+  // Windows scoop/npm shims register lychee as `lychee.cmd`. Node's
+  // `spawn` without `shell: true` doesn't resolve PATHEXT, so a
+  // .cmd-only install ENOENTs even though lychee IS on PATH. Retry
+  // once with the explicit `.cmd` extension on Windows. Shape (a)
+  // from the Chunk 5 known-issue analysis — safer than `shell: true`
+  // (no shell-injection surface on the URL arg list).
+  if (mainResult.notFound && process.platform === 'win32') {
+    mainResult = await spawnLycheeMain('lychee.cmd', args, consumerCwd, outputStream);
+  }
+  if (mainResult.notFound) {
+    process.stderr.write(
+      '[preflight] lychee: command not found. Install the lychee CLI:\n' +
+        '  https://lychee.cli.rs/installation/\n' +
+        '  (e.g. `cargo install lychee`, `brew install lychee`, ' +
+        '`scoop install lychee`)\n'
+    );
+  }
   const exitCode = await new Promise<number>((resolve) => {
-    let child;
-    try {
-      child = spawn('lychee', args, { cwd: consumerCwd });
-    } catch (err) {
-      process.stderr.write(
-        `[preflight] lychee: failed to spawn — is the lychee CLI installed and on PATH?\n` +
-          `  ${err instanceof Error ? err.message : String(err)}\n` +
-          'Install: https://lychee.cli.rs/installation/\n'
-      );
-      outputStream.end();
-      resolve(3);
-      return;
-    }
-    child.stdout.on('data', (chunk: Buffer) => {
-      outputStream.write(chunk);
-      process.stdout.write(chunk);
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      outputStream.write(chunk);
-      process.stderr.write(chunk);
-    });
-    child.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'ENOENT') {
-        process.stderr.write(
-          '[preflight] lychee: command not found. Install the lychee CLI:\n' +
-            '  https://lychee.cli.rs/installation/\n' +
-            '  (e.g. `cargo install lychee`, `brew install lychee`, ' +
-            '`scoop install lychee`)\n'
-        );
-        outputStream.end();
-        resolve(3);
-        return;
-      }
-      process.stderr.write(`[preflight] lychee: spawn error: ${err.message}\n`);
-      outputStream.end();
-      resolve(4);
-    });
-    child.on('exit', (code) => {
-      outputStream.end(() => resolve(code ?? 1));
-    });
+    outputStream.end(() => resolve(mainResult.notFound ? 3 : mainResult.exitCode));
   });
 
   // Unified summary schema across cadences. The discriminator is
@@ -176,29 +155,17 @@ const LYCHEE_MIN_MINOR = 13;
 async function checkLycheeVersion(): Promise<void> {
   // Capture BOTH streams — some pre-0.10 lychee builds wrote --version
   // output to stderr. Reviewer-flagged R5.
-  let captured = '';
-  try {
-    await new Promise<void>((resolve) => {
-      let child;
-      try {
-        child = spawn('lychee', ['--version']);
-      } catch {
-        resolve();
-        return;
-      }
-      child.stdout?.on('data', (chunk: Buffer) => {
-        captured += chunk.toString('utf8');
-      });
-      child.stderr?.on('data', (chunk: Buffer) => {
-        captured += chunk.toString('utf8');
-      });
-      child.on('error', () => resolve());
-      child.on('exit', () => resolve());
-    });
-  } catch {
-    return;
+  let captured = await probeLycheeVersion('lychee');
+  // Same Windows .cmd-shim retry as the main spawn path. If the first
+  // probe ENOENTed silently and we're on Windows, try lychee.cmd —
+  // otherwise the version-check noise floor stays at "did not find
+  // lychee" (silently swallowed) and the main spawn warning would
+  // fire below for the consumer; but if the .cmd retry on the MAIN
+  // spawn would succeed, this probe needs to succeed too or the
+  // version warning won't surface.
+  if (!captured && process.platform === 'win32') {
+    captured = await probeLycheeVersion('lychee.cmd');
   }
-
   if (!captured) return;
   const m = /^lychee\s+(\d+)\.(\d+)\.(\d+)/m.exec(captured);
   if (!m) {
@@ -218,4 +185,94 @@ async function checkLycheeVersion(): Promise<void> {
       `[preflight] lychee ${major}.${minor}.${patch} detected. preflight uses --no-progress / --max-concurrency / --timeout which may not be supported. Upgrade via brew/scoop/cargo install lychee@latest.\n`
     );
   }
+}
+
+/**
+ * One-shot lychee version probe. Returns the captured stdout+stderr,
+ * or empty string on any failure (ENOENT / spawn error / no output).
+ * The caller decides whether to retry with `lychee.cmd` on Windows.
+ */
+async function probeLycheeVersion(command: string): Promise<string> {
+  let captured = '';
+  await new Promise<void>((resolve) => {
+    let child;
+    try {
+      child = spawn(command, ['--version']);
+    } catch {
+      resolve();
+      return;
+    }
+    child.stdout?.on('data', (chunk: Buffer) => {
+      captured += chunk.toString('utf8');
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      captured += chunk.toString('utf8');
+    });
+    child.on('error', () => resolve());
+    child.on('exit', () => resolve());
+  });
+  return captured;
+}
+
+interface SpawnLycheeMainResult {
+  exitCode: number;
+  /** True when the spawn failed with ENOENT — caller decides whether to retry. */
+  notFound: boolean;
+}
+
+/**
+ * Run lychee for real, piping stdout/stderr to both the output file
+ * and the parent's tty. Returns `notFound: true` on ENOENT without
+ * writing the install-instruction message; the caller handles that
+ * (after a possible Windows .cmd-shim retry).
+ */
+async function spawnLycheeMain(
+  command: string,
+  args: string[],
+  cwd: string,
+  outputStream: NodeJS.WritableStream
+): Promise<SpawnLycheeMainResult> {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(command, args, { cwd });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        resolve({ exitCode: 3, notFound: true });
+        return;
+      }
+      process.stderr.write(
+        `[preflight] lychee: failed to spawn — ${err instanceof Error ? err.message : String(err)}\n` +
+          'Install: https://lychee.cli.rs/installation/\n'
+      );
+      resolve({ exitCode: 3, notFound: false });
+      return;
+    }
+    let settled = false;
+    const settle = (val: SpawnLycheeMainResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(val);
+    };
+    child.stdout.on('data', (chunk: Buffer) => {
+      outputStream.write(chunk);
+      process.stdout.write(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      outputStream.write(chunk);
+      process.stderr.write(chunk);
+    });
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') {
+        settle({ exitCode: 3, notFound: true });
+        return;
+      }
+      process.stderr.write(`[preflight] lychee: spawn error: ${err.message}\n`);
+      settle({ exitCode: 4, notFound: false });
+    });
+    child.on('exit', (code) => {
+      settle({ exitCode: code ?? 1, notFound: false });
+    });
+  });
 }
