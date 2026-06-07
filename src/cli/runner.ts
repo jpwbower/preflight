@@ -587,15 +587,35 @@ interface GateManifestOutcome {
 async function assembleGateManifest(opts: GateManifestOptions): Promise<GateManifestOutcome> {
   const records: GateRouteRecord[] = [];
   for (let i = 0; i < opts.cfg.routes.length; i++) {
+    const route = opts.cfg.routes[i]!;
     const sidecar = path.join(opts.gateDir, `gate-route-${i}.json`);
     if (!existsSync(sidecar)) continue;
+    let parsed: GateRouteRecord;
     try {
-      const raw = await readFile(sidecar, 'utf8');
-      records.push(JSON.parse(raw) as GateRouteRecord);
+      parsed = JSON.parse(await readFile(sidecar, 'utf8')) as GateRouteRecord;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // A corrupt sidecar leaves this slot missing → coverage incomplete → fail-closed.
       process.stderr.write(`[preflight] gate: failed to read sidecar ${sidecar}: ${msg}\n`);
+      continue;
     }
+    // Route IDENTITY is runner-authoritative, never trusted from sidecar content:
+    // reject any sidecar whose claimed index/name/path does not match the
+    // authoritative route for THIS slot. This stops a corrupt, stale, or spoofed
+    // sidecar from claiming a different route, duplicating one, or riding a green
+    // coverage with a manifest whose records don't correspond to cfg.routes
+    // (the manifest is the binding evidence for the external gate). The capture
+    // fields (DOM / screenshot / axe / render-health) are taken from the sidecar;
+    // the identity (index / name / path) is re-stamped from cfg.routes.
+    if (parsed.index !== i || parsed.name !== route.name || parsed.path !== route.path) {
+      process.stderr.write(
+        `[preflight] gate: sidecar ${sidecar} identity mismatch ` +
+          `(claimed index=${String(parsed.index)} name=${String(parsed.name)} path=${String(parsed.path)}; ` +
+          `expected index=${i} name=${route.name} path=${route.path}); rejecting (fail-closed).\n`
+      );
+      continue;
+    }
+    records.push({ ...parsed, index: i, name: route.name, path: route.path });
   }
 
   const manifest = assembleManifest(
