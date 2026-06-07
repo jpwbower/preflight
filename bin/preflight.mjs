@@ -92,6 +92,21 @@ function realPath(p) {
   return realpathSync.native ? realpathSync.native(p) : realpathSync(p);
 }
 
+// Walk up from startDir looking for a `.git` (a version-controlled checkout
+// marker). Returns the enclosing repo root, or null if startDir is not inside
+// any git checkout. Unlike findProjectBoundary this is anchored on the path
+// itself (not on cwd), so it can tell whether a --config FILE sits inside a
+// checkout regardless of where preflight was launched from.
+function findEnclosingRepo(startDir) {
+  let dir = path.resolve(startDir);
+  while (true) {
+    if (existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 async function loadConsumerConfig(configPath, consumerCwd) {
   const ext = path.extname(configPath).toLowerCase();
   if (ext === '.ts' || ext === '.mts') {
@@ -294,23 +309,33 @@ async function main() {
     const gateProjectRootLexical = findProjectBoundary(consumerCwd);
     const gateProjectRoot = realPath(gateProjectRootLexical);
     const gateConfigReal = realPath(configPath);
-    // Reject if the config sits inside the checkout EITHER lexically (its own
-    // path is in the tree — a PR could have created it there, including a
-    // symlink/junction that points elsewhere) OR after realpath (its actual
-    // content is in the tree). The union closes both a symlink pointing OUTWARD
-    // from inside the checkout and one pointing INWARD from outside; checking
-    // only the realpath would let an inside symlink-to-outside slip past the
-    // "reject inside-checkout paths" control.
+    // The config's OWN enclosing git checkout, anchored on the config path (NOT
+    // on cwd). This is the load-bearing provenance check: it rejects a config
+    // that lives inside ANY checkout regardless of where preflight was launched
+    // from — closing the honest misconfig where the driver runs preflight from a
+    // scratch/staging cwd but passes a --config path inside the real PR checkout
+    // (the cwd-derived boundary below would compare against the scratch dir and
+    // wrongly accept the PR-controlled JSON). The trusted gate driver must stage
+    // the inert JSON in a non-versioned dir (e.g. a temp dir) outside any repo.
+    const gateConfigEnclosingRepo = findEnclosingRepo(path.dirname(gateConfigReal));
+    // Also reject if the config sits inside THIS project's checkout, EITHER
+    // lexically (a PR could have created it there, incl. a symlink/junction) OR
+    // after realpath. The union closes a symlink pointing OUTWARD from inside as
+    // well as one pointing INWARD from outside.
     if (
+      gateConfigEnclosingRepo !== null ||
       isPathInsideOrEqual(configPath, gateProjectRootLexical) ||
       isPathInsideOrEqual(gateConfigReal, gateProjectRoot)
     ) {
       process.stderr.write(
         `preflight --gate: --config must be staged outside the current project checkout (got "${configPath}").\n` +
           `Resolved project boundary: ${gateProjectRoot}\n` +
-          'A path inside the checkout — or a symlink/junction whose real target is inside — can be\n' +
-          'PR-controlled; the trusted gate driver must stage the inert JSON config outside that\n' +
-          'boundary and pass its absolute path.\n'
+          (gateConfigEnclosingRepo !== null
+            ? `Config is inside a git checkout: ${gateConfigEnclosingRepo}\n`
+            : '') +
+          'A config inside ANY checkout — or a symlink/junction whose real target is — can be\n' +
+          'PR-controlled; the trusted gate driver must stage the inert JSON config in a\n' +
+          'non-versioned directory (e.g. a temp dir) outside any repo and pass its absolute path.\n'
       );
       return EXIT.CONFIG_ERROR;
     }
