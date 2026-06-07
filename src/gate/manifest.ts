@@ -249,10 +249,16 @@ export function assembleManifest(
     if (!present.has(i)) missingRoutes.push(i);
   }
   const coverageComplete = missingRoutes.length === 0;
+  // Normalise surface ONCE and use the same value for the hash AND the emitted
+  // manifest. An empty string is treated as absent: otherwise the hash would
+  // bind "" (it is non-nullish) while the manifest omits the field (it is
+  // falsy), so a checker recomputing from the emitted manifest would see
+  // null/absent and mis-bind. `|| null` collapses undefined/null/"" to null.
+  const surface = meta.surface || null;
   const manifestSha256 = computeManifestSha256(ordered, {
     schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
     project: meta.project,
-    surface: meta.surface ?? null,
+    surface,
     a11yGating: meta.a11yGating,
     routeCount,
     coverageComplete,
@@ -262,7 +268,7 @@ export function assembleManifest(
     schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
     preflightVersion: meta.preflightVersion,
     finishedAt: meta.finishedAt,
-    ...(meta.surface ? { surface: meta.surface } : {}),
+    ...(surface ? { surface } : {}),
     project: meta.project,
     a11yGating: meta.a11yGating,
     routeCount,

@@ -324,6 +324,15 @@ const config: PlaywrightTestConfig = defineConfig({
   // override testMatch.
   testMatch: SELECTED_TEST_MATCH,
   testIgnore: SELECTED_TEST_IGNORE,
+
+  // In --gate mode the rendered engine×viewport project is collapsed to one
+  // and bound into manifestSha256. Re-apply it AFTER the playwrightOverrides
+  // spread (same reason as testMatch/testIgnore above) so a JSON config's
+  // `playwrightOverrides.projects` cannot run the gate on a different/extra
+  // project while the manifest still binds the planned one — which would also
+  // collide the route-indexed sidecar filenames across projects. Outside gate
+  // mode, projects overrides remain a legitimate consumer escape hatch.
+  ...(isGate ? { projects: buildProjects() } : {}),
 });
 
 export default config;
