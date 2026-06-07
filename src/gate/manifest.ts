@@ -38,8 +38,11 @@ import { createHash } from 'node:crypto';
  *     runner's own output dir — host control that exists independent of any
  *     diff, outside this gate's honest-author threat model. The customer-facing
  *     "evidence is first-class" surface (where the rendered image itself must
- *     be bound) is a separate audience tier handled by a Phase-B checker that
- *     binds evidence on one canonical render environment — not this primitive.
+ *     be bound — so a pixel-only change that does not touch the DOM cannot pass)
+ *     is a separate audience tier handled by a Phase-B checker that binds
+ *     evidence on one canonical render environment — NOT this primitive. That
+ *     pixel-binding is a deliberately-deferred, tracked design decision
+ *     (preflight issue #3), not an oversight in this cadence.
  */
 
 /** Current gate-manifest schema version. Bump on any breaking shape change. */
@@ -106,13 +109,20 @@ export interface GateManifestMeta {
   a11yGating: boolean;
 }
 
-export interface GateManifest extends GateManifestMeta {
+export interface GateManifest extends Omit<GateManifestMeta, 'surface'> {
   schemaVersion: string;
   routeCount: number;
   /** False if any authoritative route produced no capture (worker crash, etc.). */
   coverageComplete: boolean;
   /** Indices of authoritative routes that produced no record. */
   missingRoutes: number[];
+  /**
+   * Surface label, or null when none. ALWAYS present (never omitted) so a
+   * checker recomputing manifestSha256 from the emitted manifest round-trips —
+   * the binding hash folds in exactly this value (null when absent), and an
+   * omitted key would canonicalise differently from a bound `null`.
+   */
+  surface: string | null;
   /** The binding hash — sha256 over the ordered, normalized binding view. */
   manifestSha256: string;
   routes: GateRouteRecord[];
@@ -210,6 +220,9 @@ export interface ManifestBindingMeta {
  * A Phase-B checker recomputes this as:
  *   sha256(canonicalJson({ schemaVersion, project, surface, a11yGating,
  *     routeCount, coverageComplete, missingRoutes, routes: [bindingRecord,...] }))
+ * where `surface` is the emitted manifest's `surface` (always present — null
+ * when absent). `meta.surface` is coalesced to null here so a checker that
+ * passes an absent/undefined surface still matches the bound hash.
  */
 export function computeManifestSha256(
   records: GateRouteRecord[],
@@ -220,7 +233,7 @@ export function computeManifestSha256(
     canonicalJson({
       schemaVersion: meta.schemaVersion,
       project: meta.project,
-      surface: meta.surface,
+      surface: meta.surface ?? null,
       a11yGating: meta.a11yGating,
       routeCount: meta.routeCount,
       coverageComplete: meta.coverageComplete,
@@ -249,11 +262,14 @@ export function assembleManifest(
     if (!present.has(i)) missingRoutes.push(i);
   }
   const coverageComplete = missingRoutes.length === 0;
-  // Normalise surface ONCE and use the same value for the hash AND the emitted
-  // manifest. An empty string is treated as absent: otherwise the hash would
-  // bind "" (it is non-nullish) while the manifest omits the field (it is
-  // falsy), so a checker recomputing from the emitted manifest would see
-  // null/absent and mis-bind. `|| null` collapses undefined/null/"" to null.
+  // Normalise surface ONCE, use the SAME value for the hash AND the emitted
+  // manifest, and ALWAYS emit it (as null when absent). `|| null` collapses
+  // undefined/null/"" to null. Emitting it UNCONDITIONALLY is load-bearing: if
+  // the hash binds a value (e.g. null) while the manifest omits the key, a
+  // checker recomputing manifestSha256 from the emitted manifest reads the
+  // absent key as `undefined`, which canonicalises differently from the bound
+  // `null` — so a correct surface would fail recompute. Always-present makes the
+  // round-trip exact.
   const surface = meta.surface || null;
   const manifestSha256 = computeManifestSha256(ordered, {
     schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
@@ -268,7 +284,7 @@ export function assembleManifest(
     schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
     preflightVersion: meta.preflightVersion,
     finishedAt: meta.finishedAt,
-    ...(surface ? { surface } : {}),
+    surface,
     project: meta.project,
     a11yGating: meta.a11yGating,
     routeCount,
