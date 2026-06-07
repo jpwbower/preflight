@@ -238,7 +238,12 @@ const config: PlaywrightTestConfig = defineConfig({
 
   fullyParallel: true,
   forbidOnly: isCi,
-  retries: isCi ? 2 : 0,
+  // Gate mode pins retries OFF. The gate spec writes each route's sidecar
+  // (fixed `gate-route-<index>` filename) BEFORE asserting render-health, so a
+  // retry of an unhealthy route would OVERWRITE its sidecar and a passing retry
+  // would bind the healthy capture — masking the unhealthy evidence the
+  // write-then-assert contract must preserve. One capture per route, no retries.
+  retries: isGate ? 0 : isCi ? 2 : 0,
   // --release pins to one worker because NVDA owns the foreground app
   // — it captures keyboard via global Windows hooks and breaks if any
   // other process steals focus mid-test. The `testIgnore` gating

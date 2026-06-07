@@ -291,14 +291,26 @@ async function main() {
       process.stderr.write(`preflight --gate: config file not found at ${configPath}\n`);
       return EXIT.CONFIG_ERROR;
     }
-    const gateProjectRoot = realPath(findProjectBoundary(consumerCwd));
-    const gateConfigPath = realPath(configPath);
-    if (isPathInsideOrEqual(gateConfigPath, gateProjectRoot)) {
+    const gateProjectRootLexical = findProjectBoundary(consumerCwd);
+    const gateProjectRoot = realPath(gateProjectRootLexical);
+    const gateConfigReal = realPath(configPath);
+    // Reject if the config sits inside the checkout EITHER lexically (its own
+    // path is in the tree — a PR could have created it there, including a
+    // symlink/junction that points elsewhere) OR after realpath (its actual
+    // content is in the tree). The union closes both a symlink pointing OUTWARD
+    // from inside the checkout and one pointing INWARD from outside; checking
+    // only the realpath would let an inside symlink-to-outside slip past the
+    // "reject inside-checkout paths" control.
+    if (
+      isPathInsideOrEqual(configPath, gateProjectRootLexical) ||
+      isPathInsideOrEqual(gateConfigReal, gateProjectRoot)
+    ) {
       process.stderr.write(
         `preflight --gate: --config must be staged outside the current project checkout (got "${configPath}").\n` +
           `Resolved project boundary: ${gateProjectRoot}\n` +
-          'An absolute path inside the checkout can still be PR-controlled; the trusted gate driver\n' +
-          'must stage the inert JSON config outside that boundary and pass the absolute path.\n'
+          'A path inside the checkout — or a symlink/junction whose real target is inside — can be\n' +
+          'PR-controlled; the trusted gate driver must stage the inert JSON config outside that\n' +
+          'boundary and pass its absolute path.\n'
       );
       return EXIT.CONFIG_ERROR;
     }
