@@ -46,6 +46,7 @@ async function runValidation() {
   }
   const { validateAndResolve } = await import(pathToFileURL(path.join(repoRoot, 'dist', 'defineConfig.js')).href);
   const { run } = await import(pathToFileURL(path.join(repoRoot, 'dist', 'cli', 'runner.js')).href);
+  const { computeManifestSha256 } = await import(pathToFileURL(path.join(repoRoot, 'dist', 'gate', 'manifest.js')).href);
 
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'preflight-gate-inert-'));
   try {
@@ -175,6 +176,29 @@ async function runValidation() {
         `manifestSha256 changed across deterministic renders: ${manifest1.manifestSha256} != ${manifest2.manifestSha256}`
       );
     }
+
+    // Independent recompute: an external checker re-deriving manifestSha256 from
+    // the EMITTED manifest (via the documented recipe) must match the bound
+    // hash. Reads fields straight off the emitted manifest the way an honest
+    // checker would (incl. surface, which is always present — null when absent).
+    // This guards the emit-vs-recompute contract — e.g. a surface/field
+    // present-vs-absent asymmetry — that render-to-render equality cannot catch.
+    const recomputed = computeManifestSha256(manifest1.routes, {
+      schemaVersion: manifest1.schemaVersion,
+      project: manifest1.project,
+      surface: manifest1.surface,
+      a11yGating: manifest1.a11yGating,
+      routeCount: manifest1.routeCount,
+      coverageComplete: manifest1.coverageComplete,
+      missingRoutes: manifest1.missingRoutes,
+    });
+    if (recomputed !== manifest1.manifestSha256) {
+      fail(
+        `independent recompute from the emitted manifest mismatched the bound hash: ` +
+          `${recomputed} != ${manifest1.manifestSha256}`
+      );
+    }
+    process.stdout.write('gate inert validation: independent manifest recompute matches\n');
 
     process.stdout.write(`gate inert validation: PASS (${manifest1.manifestSha256})\n`);
   } finally {
