@@ -294,7 +294,7 @@ const config: PlaywrightTestConfig = defineConfig({
   projects: buildProjects(),
 
   webServer:
-    cfg.webServer === false
+    isGate || cfg.webServer === false
       ? undefined
       : {
           command: cfg.webServer.command,
@@ -313,7 +313,11 @@ const config: PlaywrightTestConfig = defineConfig({
           stderr: 'pipe',
         },
 
-  ...(cfg.playwrightOverrides ?? {}),
+  // --gate uses an inert JSON config and a pinned Playwright contract. The
+  // CLI and runner reject playwrightOverrides before this file is loaded, but
+  // keep this child-process backstop so a future direct invocation cannot
+  // smuggle globalSetup/reporters/webServer/testDir/use/etc. into gate mode.
+  ...(isGate ? {} : (cfg.playwrightOverrides ?? {})),
 
   // The cadence testMatch/testIgnore is load-bearing — a consumer who sets
   // `playwrightOverrides.testMatch` (e.g. to register an extra custom spec)

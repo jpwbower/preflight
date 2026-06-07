@@ -35,6 +35,48 @@ const KNOWN_KEYS = new Set<keyof PreflightConfig>([
   'runnerTimeoutMs',
 ]);
 
+/**
+ * Gate mode is a trusted capture cadence, so JSON config is deliberately a
+ * strict inert subset of the normal consumer config surface. Anything that can
+ * import modules, spawn commands, register specs, suppress findings, or tune
+ * a non-gate cadence is rejected before the config reaches Playwright.
+ */
+const GATE_CONFIG_ALLOWED_KEYS = new Set<string>([
+  'baseURL',
+  'routes',
+  'webServer',
+  'engines',
+  'viewports',
+  'readyMarker',
+  'locale',
+  'timezoneId',
+  'gateA11yGating',
+  'networkPreset',
+  'runnerTimeoutMs',
+]);
+const GATE_CONFIG_REJECT_REASONS = new Map<string, string>([
+  [
+    'auth',
+    'it imports auth.setup/auth.teardown modules; --gate never runs the auth lifecycle.',
+  ],
+  [
+    'playwrightOverrides',
+    'it can inject Playwright setup, reporters, webServer, specs, projects, or context options; --gate pins that contract.',
+  ],
+  [
+    'releaseOnlyPatterns',
+    'it registers extra spec globs; --gate runs only the bundled gate-manifest spec.',
+  ],
+  [
+    'consoleIgnore',
+    'it can suppress render-health failures; --gate keeps the gate health floor runner-owned.',
+  ],
+  [
+    'axeDisabled',
+    'it can suppress axe findings; --gate records the unmodified axe signal.',
+  ],
+]);
+const GATE_ROUTE_KEYS = new Set(['name', 'path']);
 const KNOWN_NETWORK_PRESET_NAMES = new Set(['3g-slow', '3g-fast', '4g', 'wifi']);
 const KNOWN_NETWORK_PRESET_CUSTOM_KEYS = new Set(['downloadKbps', 'uploadKbps', 'latencyMs']);
 
@@ -63,6 +105,32 @@ export class PreflightConfigError extends Error {
  */
 export function defineConfig(config: PreflightConfig): ResolvedPreflightConfig {
   return validateAndResolve(config);
+}
+
+export function validateGateConfig(input: unknown): void {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new PreflightConfigError(
+      '--gate config must be a JSON object with only inert capture keys.'
+    );
+  }
+  const cfg = input as Record<string, unknown>;
+
+  for (const key of Object.keys(cfg)) {
+    const reason = GATE_CONFIG_REJECT_REASONS.get(key);
+    if (reason) {
+      throw new PreflightConfigError(
+        `--gate config cannot include "${key}": ${reason}`
+      );
+    }
+    if (!GATE_CONFIG_ALLOWED_KEYS.has(key)) {
+      throw new PreflightConfigError(
+        `--gate config has non-allowlisted key "${key}". Allowed keys: ${formatSet(GATE_CONFIG_ALLOWED_KEYS)}.`
+      );
+    }
+  }
+
+  validateGateRoutes(cfg.routes);
+  validateGateWebServer(cfg.webServer);
 }
 
 export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
@@ -435,6 +503,31 @@ function validateNetworkPreset(input: unknown): NonNullable<ResolvedPreflightCon
     uploadKbps: np.uploadKbps as number,
     latencyMs: np.latencyMs as number,
   };
+}
+
+function validateGateRoutes(input: unknown): void {
+  if (!Array.isArray(input)) return;
+  input.forEach((route, i) => {
+    if (route === null || typeof route !== 'object' || Array.isArray(route)) return;
+    for (const key of Object.keys(route as Record<string, unknown>)) {
+      if (!GATE_ROUTE_KEYS.has(key)) {
+        throw new PreflightConfigError(
+          `--gate config routes[${i}] has non-allowlisted key "${key}". Allowed route keys: ${formatSet(GATE_ROUTE_KEYS)}.`
+        );
+      }
+    }
+  });
+}
+
+function validateGateWebServer(input: unknown): void {
+  if (input === undefined || input === false) return;
+  throw new PreflightConfigError(
+    '--gate config webServer must be false. The trusted gate runner must start the surface out-of-band; gate JSON cannot carry a shell command.'
+  );
+}
+
+function formatSet(values: Set<string>): string {
+  return Array.from(values).join(', ');
 }
 
 /**
