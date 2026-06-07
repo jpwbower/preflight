@@ -1,47 +1,38 @@
-# preflight's own CI. Gates main + PRs.
+# preflight CI — minimal GitHub Actions, by deliberate cost design.
 #
-# What it proves on every push:
-#   1. TypeScript compiles cleanly (`npm run build`).
-#   2. The packed tarball installs into a fresh project as a sibling
-#      of @playwright/test (the peerDep shape that consumers use).
-#   3. `npx preflight --smoke` against a static fixture runs the
-#      smoke / a11y / keyboard / emulated-media / virtual-sr specs
-#      end-to-end on chromium__mobile-375, in CI conditions, on both
-#      Linux and Windows runners.
-#   4. `npx preflight --gate` against the same fixture produces a
-#      gate-manifest.json whose binding manifestSha256 is identical
-#      across two consecutive renders (determinism) and is
-#      coverage-complete — the property the external review gate relies on.
+# preflight is CTR infrastructure, and Actions bills by OS multiplier (Linux 1x,
+# Windows 2x, macOS 10x), rounding each job up to the whole minute. So the
+# EXPENSIVE per-PR validation moved OFF Actions onto local compute: the required
+# `ctr/preflight-ci` check runs the full smoke + tarball-install + gate-manifest
+# determinism suite on Windows (Git-Bash) AND Linux (the Playwright Docker image)
+# locally, and `ctr/cross-model-review` runs the cross-model review. Both are
+# required by the branch-protection ruleset and posted by the local runners.
 #
-# Scope intentionally narrow:
-#   - No --release: NVDA needs a Windows runner WITH NVDA visible
-#     (Guidepup's setup script registers it in %TEMP%, but the audio
-#     subsystem on hosted runners doesn't give NVDA something to
-#     speak to, and the foreground-app requirement collides with
-#     headless Chromium). Lighthouse needs a real Chromium with a
-#     real port; it would work but the wallclock isn't worth the
-#     budget on every push.
-#   - No --links: lychee is a separate install + the link surface of
-#     the CI fixture is one self-link, which proves nothing.
-#   - No --visual: baselines drift across Playwright versions / OS
-#     updates faster than we'd want to maintain them in this repo.
+# What stays on Actions, and why:
+#   - smoke (ubuntu)  — runs on every PR + push to main. Linux is the 1x lane, so
+#     this is ~1 billed minute. It is an ADVISORY in-repo CI signal (NOT a
+#     required check — the local ctr/preflight-ci is the enforcement), kept so
+#     the per-PR build/smoke boundary stays auditable in the repo itself rather
+#     than living entirely in cross-repo config.
+#   - build-only (macos) — runs on version tags ONLY. macOS (10x) is the one
+#     platform with no local runtime, so it validates the compile + tarball shape
+#     at release time, where the rare 10-billed-minute cost is justified.
 
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
 
 jobs:
   smoke:
-    name: smoke (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    # PRs + main pushes only (skipped on tag pushes — that's the macOS lane).
+    name: smoke (ubuntu)
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -71,18 +62,6 @@ jobs:
           cp ci/preflight.smoke.config.ts _ci_scratch/preflight.config.ts
           cp -r ci/fixture _ci_scratch/fixture
           cd _ci_scratch
-          # No package-lock.json here — generate a minimal package.json
-          # so npm install has somewhere to put node_modules. The
-          # tarball install pulls preflight as a real dep + we add
-          # @playwright/test (peerDep) and http-server (used by the
-          # webServer in preflight.smoke.config.ts).
-          #
-          # `type: module` is load-bearing: preflight is ESM-only
-          # (its own package.json sets type:module + exports only
-          # point to dist/index.js under "import"). A consumer
-          # package.json defaulted to "commonjs" by `npm init -y`
-          # cannot resolve `from 'preflight'` and tsx surfaces the
-          # `No "exports" main defined` error.
           npm init -y >/dev/null
           npm pkg set type=module
           npm install --no-save \
@@ -93,12 +72,7 @@ jobs:
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/AppData/Local/ms-playwright
-          # Cache key includes the packed tarball name so a version
-          # bump invalidates; includes OS so Linux and Windows caches
-          # don't collide.
+          path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pack.outputs.tarball }}
 
       - name: Install Chromium browser
@@ -111,58 +85,18 @@ jobs:
         working-directory: _ci_scratch
         run: npx preflight --smoke --ci
 
-      - name: Write gate config (inert JSON)
-        shell: bash
-        working-directory: _ci_scratch
-        run: |
-          cat > gate-config.json <<'JSON'
-          {
-            "baseURL": "http://127.0.0.1:5060",
-            "routes": [{ "name": "home", "path": "/" }],
-            "webServer": {
-              "command": "npx http-server fixture -p 5060 -c-1 --silent",
-              "url": "http://127.0.0.1:5060",
-              "timeout": 30000
-            },
-            "engines": ["chromium"],
-            "viewports": ["desktop-1280"]
-          }
-          JSON
-
-      - name: Run preflight --gate twice + assert deterministic manifest
-        shell: bash
-        working-directory: _ci_scratch
-        run: |
-          set -euo pipefail
-          npx preflight --gate --config gate-config.json
-          sha1="$(node -p "require('./.preflight/last-run/gate-manifest.json').manifestSha256")"
-          cov="$(node -p "require('./.preflight/last-run/gate-manifest.json').coverageComplete")"
-          npx preflight --gate --config gate-config.json
-          sha2="$(node -p "require('./.preflight/last-run/gate-manifest.json').manifestSha256")"
-          echo "run1 manifestSha256=$sha1 (coverageComplete=$cov)"
-          echo "run2 manifestSha256=$sha2"
-          if [ "$cov" != "true" ]; then
-            echo "::error::gate coverage incomplete"; exit 1
-          fi
-          if [ "$sha1" != "$sha2" ]; then
-            echo "::error::gate manifest hash is non-deterministic across renders ($sha1 != $sha2)"; exit 1
-          fi
-          echo "gate manifest is coverage-complete and deterministic across renders."
-
       - name: Upload last-run artefacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: preflight-last-run-${{ matrix.os }}
+          name: preflight-last-run-ubuntu
           path: _ci_scratch/.preflight/last-run/
           retention-days: 7
 
   build-only:
-    # macOS-build smoke: confirms the TS compile and the published
-    # tarball shape don't accidentally depend on Linux- or Windows-
-    # only APIs. No browser smoke run (no Mac dev box in the
-    # validation loop), but a compile-clean signal is cheap.
+    # Version tags only — the macOS (10x) compile/tarball validation at release.
     name: build-only (macos)
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
