@@ -8,6 +8,10 @@
 #      smoke / a11y / keyboard / emulated-media / virtual-sr specs
 #      end-to-end on chromium__mobile-375, in CI conditions, on both
 #      Linux and Windows runners.
+#   4. `npx preflight --gate` against the same fixture produces a
+#      gate-manifest.json whose binding manifestSha256 is identical
+#      across two consecutive renders (determinism) and is
+#      coverage-complete — the property the external review gate relies on.
 #
 # Scope intentionally narrow:
 #   - No --release: NVDA needs a Windows runner WITH NVDA visible
@@ -106,6 +110,44 @@ jobs:
         shell: bash
         working-directory: _ci_scratch
         run: npx preflight --smoke --ci
+
+      - name: Write gate config (inert JSON)
+        shell: bash
+        working-directory: _ci_scratch
+        run: |
+          cat > gate-config.json <<'JSON'
+          {
+            "baseURL": "http://127.0.0.1:5060",
+            "routes": [{ "name": "home", "path": "/" }],
+            "webServer": {
+              "command": "npx http-server fixture -p 5060 -c-1 --silent",
+              "url": "http://127.0.0.1:5060",
+              "timeout": 30000
+            },
+            "engines": ["chromium"],
+            "viewports": ["desktop-1280"]
+          }
+          JSON
+
+      - name: Run preflight --gate twice + assert deterministic manifest
+        shell: bash
+        working-directory: _ci_scratch
+        run: |
+          set -euo pipefail
+          npx preflight --gate --config gate-config.json
+          sha1="$(node -p "require('./.preflight/last-run/gate-manifest.json').manifestSha256")"
+          cov="$(node -p "require('./.preflight/last-run/gate-manifest.json').coverageComplete")"
+          npx preflight --gate --config gate-config.json
+          sha2="$(node -p "require('./.preflight/last-run/gate-manifest.json').manifestSha256")"
+          echo "run1 manifestSha256=$sha1 (coverageComplete=$cov)"
+          echo "run2 manifestSha256=$sha2"
+          if [ "$cov" != "true" ]; then
+            echo "::error::gate coverage incomplete"; exit 1
+          fi
+          if [ "$sha1" != "$sha2" ]; then
+            echo "::error::gate manifest hash is non-deterministic across renders ($sha1 != $sha2)"; exit 1
+          fi
+          echo "gate manifest is coverage-complete and deterministic across renders."
 
       - name: Upload last-run artefacts on failure
         if: failure()

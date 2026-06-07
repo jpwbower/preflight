@@ -14,6 +14,7 @@ import type {
 import { ALL_VIEWPORTS } from '../viewports.js';
 import { DEFAULT_CONSOLE_IGNORE } from '../console-ignore-defaults.js';
 import { writeDisabledRulesArtefact } from '../report/disabled-rules.js';
+import { assembleManifest, type GateRouteRecord } from '../gate/manifest.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,6 +83,10 @@ export interface RunResult {
 function defaultRunnerTimeoutMs(args: ParsedArgs): number {
   if (args.smoke) return 5 * 60 * 1000;
   if (args.release) return 60 * 60 * 1000;
+  // --gate renders one project × all routes (screenshot + DOM + axe each).
+  // 15 min is generous headroom for a typical surface; the runner driving
+  // the gate can raise it via cfg.runnerTimeoutMs for a large route set.
+  if (args.gate) return 15 * 60 * 1000;
   if (args.visual) return 30 * 60 * 1000;
   return 30 * 60 * 1000; // default cadence (full engine × viewport matrix)
 }
@@ -99,12 +104,36 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const { args, rawConfig, consumerCwd } = opts;
 
   const cfg = applyRunFlagsToConfig(rawConfig, args);
+
+  // --gate collapses to a single project so each route is captured once and
+  // the manifest hash is stable. If the inert config resolved to more than
+  // one engine/viewport (e.g. it omitted them and inherited the 3×5 default),
+  // say which project we actually rendered so the discard is never silent —
+  // the rendered project is bound into the manifest hash regardless.
+  if (
+    args.gate &&
+    (rawConfig.engines.length > 1 || rawConfig.viewports.length > 1)
+  ) {
+    process.stderr.write(
+      `[preflight] gate: config resolved to ${rawConfig.engines.length} engine(s) × ` +
+        `${rawConfig.viewports.length} viewport(s); rendering only ${cfg.engines[0]}__${cfg.viewports[0]}. ` +
+        'Set engines/viewports to one each in the gate config to make the rendered project explicit.\n'
+    );
+  }
+
   const globalTimeoutMs = cfg.runnerTimeoutMs ?? defaultRunnerTimeoutMs(args);
   const killAfterMs = globalTimeoutMs + RUNNER_KILL_GRACE_MS;
 
   const lastRunDir = path.join(consumerCwd, '.preflight', 'last-run');
   await rm(lastRunDir, { recursive: true, force: true });
   await mkdir(lastRunDir, { recursive: true });
+
+  // --gate writes per-route capture artefacts (DOM snapshot, screenshot,
+  // sidecar record) into this dir; the parent runner then assembles the
+  // ordered, deterministic gate-manifest.json from them after Playwright
+  // exits. Create it unconditionally so the spec's writes never race a mkdir.
+  const gateDir = path.join(lastRunDir, 'gate');
+  if (args.gate) await mkdir(gateDir, { recursive: true });
 
   // Auth lifecycle: if cfg.auth is set and --no-auth was not passed, run
   // the consumer's setup module (or reuse a cached storageState that is
@@ -169,6 +198,8 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     PREFLIGHT_SMOKE: args.smoke ? '1' : '0',
     PREFLIGHT_RELEASE: args.release ? '1' : '0',
     PREFLIGHT_VISUAL: args.visual ? '1' : '0',
+    PREFLIGHT_GATE: args.gate ? '1' : '0',
+    PREFLIGHT_GATE_DIR: gateDir,
     // Wall-clock cap forwarded to playwright.config.ts → `globalTimeout`.
     // The parent runner ALSO enforces this via a SIGKILL after a 90 s
     // grace window — see runPlaywright() and the v0.6.1 CHANGELOG entry.
@@ -201,15 +232,43 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const totals = await tallyResults(jsonFile);
   const cadence: SummaryJson['cadence'] = args.visual
     ? 'visual'
-    : args.smoke
-      ? 'smoke'
-      : args.release
-        ? 'release'
-        : 'full';
+    : args.gate
+      ? 'gate'
+      : args.smoke
+        ? 'smoke'
+        : args.release
+          ? 'release'
+          : 'full';
+
+  // --gate: assemble the ordered, deterministic manifest from the per-route
+  // sidecars the spec captured. Fail closed if a route produced no capture
+  // even though Playwright reported success (e.g. zero tests matched) — a
+  // silently-incomplete surface must never read as a green gate.
+  let finalExitCode = exitCode;
+  if (args.gate) {
+    const project = `${cfg.engines[0]}__${cfg.viewports[0]}`;
+    const gateOutcome = await assembleGateManifest({
+      lastRunDir,
+      gateDir,
+      cfg,
+      preflightVersion: opts.preflightVersion,
+      project,
+      surface: process.env.PREFLIGHT_GATE_SURFACE,
+      verbose: args.verbose,
+    });
+    if (!gateOutcome.coverageComplete && finalExitCode === 0) {
+      process.stderr.write(
+        `[preflight] gate: coverage incomplete — no capture for route index(es) ` +
+          `${gateOutcome.missingRoutes.join(', ')}. Failing the gate (exit 1).\n`
+      );
+      finalExitCode = 1;
+    }
+  }
+
   await writeSummary(
     lastRunDir,
     cfg,
-    exitCode,
+    finalExitCode,
     opts.preflightVersion,
     totals,
     cadence,
@@ -221,7 +280,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   // fails we fall back to a tiny redirect HTML so the path still resolves.
   await linkOrRedirect(lastRunDir, htmlReportDir);
 
-  return { exitCode };
+  return { exitCode: finalExitCode };
 }
 
 function applyRunFlagsToConfig(
@@ -250,6 +309,16 @@ function applyRunFlagsToConfig(
     }
     engines = [parsed.engine];
     viewports = [parsed.viewport];
+  }
+  if (args.gate) {
+    // Gate renders each route ONCE on a single deterministic project so the
+    // manifest has exactly one record per route (and a stable hash). The
+    // runner-supplied inert config may narrow engines/viewports to one each;
+    // otherwise collapse to chromium + desktop-1280 (the stable reference
+    // project, matching the visual cadence default). --engine still overrides
+    // the engine below.
+    engines = cfg.engines.length === 1 ? cfg.engines : ['chromium'];
+    viewports = cfg.viewports.length === 1 ? cfg.viewports : ['desktop-1280'];
   }
   if (args.engine) {
     engines = [args.engine];
@@ -401,7 +470,7 @@ interface SummaryJson {
   finishedAt: string;
   // Discriminator shared with the lychee cadence's summary.json so a
   // single CI consumer can switch on it instead of inferring shape.
-  cadence: 'smoke' | 'full' | 'release' | 'links' | 'visual';
+  cadence: 'smoke' | 'full' | 'release' | 'links' | 'visual' | 'gate';
   exitCode: number;
   totals: {
     passed: number;
@@ -487,6 +556,75 @@ async function writeSummary(
     ...(hang ? { hang } : {}),
   };
   await writeFile(path.join(outDir, 'summary.json'), JSON.stringify(summary, null, 2), 'utf8');
+}
+
+interface GateManifestOptions {
+  lastRunDir: string;
+  gateDir: string;
+  cfg: ResolvedPreflightConfig;
+  preflightVersion: string;
+  project: string;
+  surface: string | undefined;
+  verbose: boolean;
+}
+
+interface GateManifestOutcome {
+  coverageComplete: boolean;
+  missingRoutes: number[];
+  manifestSha256: string;
+}
+
+/**
+ * Read the per-route sidecar records the gate spec wrote, assemble them
+ * into the ordered deterministic `gate-manifest.json`, and report coverage.
+ *
+ * The runner — NOT the spec — assembles the final manifest so ordering is
+ * deterministic (by authoritative route index, not Playwright's parallel
+ * capture order) and the binding hash is computed in exactly one place. A
+ * missing sidecar (worker crashed before writing, or zero tests matched)
+ * is surfaced via `coverageComplete: false` so the caller can fail closed.
+ */
+async function assembleGateManifest(opts: GateManifestOptions): Promise<GateManifestOutcome> {
+  const records: GateRouteRecord[] = [];
+  for (let i = 0; i < opts.cfg.routes.length; i++) {
+    const sidecar = path.join(opts.gateDir, `gate-route-${i}.json`);
+    if (!existsSync(sidecar)) continue;
+    try {
+      const raw = await readFile(sidecar, 'utf8');
+      records.push(JSON.parse(raw) as GateRouteRecord);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[preflight] gate: failed to read sidecar ${sidecar}: ${msg}\n`);
+    }
+  }
+
+  const manifest = assembleManifest(
+    {
+      preflightVersion: opts.preflightVersion,
+      finishedAt: new Date().toISOString(),
+      surface: opts.surface,
+      project: opts.project,
+      a11yGating: opts.cfg.gateA11yGating ?? false,
+    },
+    records,
+    opts.cfg.routes.length
+  );
+
+  const manifestPath = path.join(opts.lastRunDir, 'gate-manifest.json');
+  await writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  if (opts.verbose) {
+    process.stderr.write(
+      `[preflight] gate: wrote ${manifestPath} ` +
+        `(routes ${manifest.routes.length}/${manifest.routeCount}, ` +
+        `manifestSha256=${manifest.manifestSha256})\n`
+    );
+  }
+
+  return {
+    coverageComplete: manifest.coverageComplete,
+    missingRoutes: manifest.missingRoutes,
+    manifestSha256: manifest.manifestSha256,
+  };
 }
 
 async function linkOrRedirect(lastRunDir: string, htmlReportDir: string): Promise<void> {
@@ -707,9 +845,11 @@ export function renderMatrix(opts: ListOptions): string {
   const releaseSpecs = ['nvda', 'lighthouse', 'html-validate'];
   const specs = opts.args.visual
     ? ['visual']
-    : opts.args.release
-      ? [...baseSpecs, ...releaseSpecs]
-      : baseSpecs;
+    : opts.args.gate
+      ? ['gate']
+      : opts.args.release
+        ? [...baseSpecs, ...releaseSpecs]
+        : baseSpecs;
   const rows: string[] = [];
   rows.push('preflight matrix:');
   rows.push(`  baseURL:    ${cfg.baseURL}`);

@@ -17,6 +17,7 @@ export interface ParsedArgs {
   release: boolean;
   links: boolean;
   visual: boolean;
+  gate: boolean;
   noAuth: boolean;
   ci: boolean;
   headed: boolean;
@@ -41,6 +42,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     release: false,
     links: false,
     visual: false,
+    gate: false,
     noAuth: false,
     ci: false,
     headed: false,
@@ -97,6 +99,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (args.command === 'run') args.command = 'links';
     } else if (a === '--visual') {
       args.visual = true;
+    } else if (a === '--gate') {
+      args.gate = true;
     } else if (a === '--no-auth') {
       args.noAuth = true;
     } else if (a === '--ci') {
@@ -160,6 +164,16 @@ export function detectFlagConflict(args: ParsedArgs): string | null {
     if (args.release) return '--visual cannot be combined with --release (different cadences).';
     if (args.engine) return '--visual cannot be combined with --engine (use cfg.visualProject to pick the visual project).';
   }
+  // --gate is its own cadence: it runs ONLY gate.spec on a single project
+  // and emits a deterministic manifest. It can't share a run with any other
+  // cadence (each forces a different project/spec subset). --engine IS
+  // allowed — it overrides which engine the single gate project renders on.
+  if (args.gate) {
+    if (args.smoke) return '--gate cannot be combined with --smoke (different cadences).';
+    if (args.release) return '--gate cannot be combined with --release (different cadences).';
+    if (args.visual) return '--gate cannot be combined with --visual (different cadences).';
+    if (args.links) return '--gate cannot be combined with --links (different cadences).';
+  }
   if (args.release && args.smoke) return '--release cannot be combined with --smoke.';
   return null;
 }
@@ -174,6 +188,8 @@ export function helpText(): string {
     '  preflight --release          full + nvda + lighthouse + html-validate',
     '  preflight --links            lychee link check (standalone, no Playwright)',
     '  preflight --visual           visual regression on one project (toHaveScreenshot)',
+    '  preflight --gate --config <f.json>',
+    '                               trusted gate-manifest capture (CI gate driver)',
     '  preflight init [--force]     drop starter preflight.config.ts',
     '  preflight init --ci          additionally drop .github/workflows/preflight.yml',
     '  preflight list               print engine x viewport x spec matrix; do not run',
@@ -185,12 +201,18 @@ export function helpText(): string {
     '  --release     pre-tag (adds nvda Windows-only, lighthouse chromium-only, html-validate)',
     '  --links       nightly (lychee against the consumer-built site / config)',
     '  --visual      opt-in (visual regression on one project; baselines consumer-managed)',
+    '  --gate        CI-gate driver (deterministic per-route manifest; inert JSON config only)',
     '',
     'FLAGS',
     '  --smoke                      chromium-only, mobile-375 viewport, smoke + a11y smoke',
     '  --release                    add nvda + lighthouse + html-validate to the default suite',
     '  --links                      run lychee link checker only (skips Playwright)',
     '  --visual                     run only the visual regression spec (toHaveScreenshot)',
+    '  --gate                       run only the gate-manifest spec on ONE project; emit a',
+    '                               deterministic gate-manifest.json (screenshot + post-',
+    '                               hydration DOM + axe + render-health per route). Requires',
+    '                               --config pointing at an INERT .json config (never executes',
+    '                               a preflight.config.ts). Driven by an external CI gate.',
     '  --no-auth                    skip cfg.auth.setup even if configured',
     '  --list                       alias for the `list` subcommand',
     '  --only=<route>               scope to one configured route (matches route.name)',
@@ -216,8 +238,8 @@ export function helpText(): string {
     '  4  runtime error (includes wall-clock hang — see runnerTimeoutMs below)',
     '',
     'WALL-CLOCK CAP',
-    '  Every run has an upper bound. Defaults: --smoke 5 min, --visual 30 min,',
-    '  default cadence 30 min, --release 60 min. Override via runnerTimeoutMs',
+    '  Every run has an upper bound. Defaults: --smoke 5 min, --gate 15 min,',
+    '  --visual 30 min, default cadence 30 min, --release 60 min. Override via runnerTimeoutMs',
     '  in preflight.config.ts (number of milliseconds, applies to all cadences).',
     '  On expiry preflight SIGKILLs Playwright + writes summary.json with',
     '  hang.hangDetected: true and exit code 4.',

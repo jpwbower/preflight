@@ -42,6 +42,7 @@ const profiles = buildViewportProfiles();
 const isCi = process.env.PREFLIGHT_CI === '1';
 const isRelease = process.env.PREFLIGHT_RELEASE === '1';
 const isVisual = process.env.PREFLIGHT_VISUAL === '1';
+const isGate = process.env.PREFLIGHT_GATE === '1';
 
 /**
  * Wall-clock upper bound for the whole Playwright run. The runner
@@ -107,6 +108,16 @@ const RELEASE_SUPPORTED_PROJECT = 'chromium__desktop-1280';
  * can't merge them into one map — they need opposite testMatch shapes.
  */
 const VISUAL_SPEC = '**/visual.spec.js';
+
+/**
+ * Gate-manifest spec. Like --visual it is FLAG-driven: --gate runs ONLY
+ * gate.spec.js (and the gate cadence collapses the matrix to one project
+ * in the runner), and every other cadence excludes it. It is its own spec
+ * because it captures runner-bound artefacts (DOM hash + screenshot + axe
+ * + render-health) and writes a deterministic manifest — distinct work
+ * from the visual baseline assertion.
+ */
+const GATE_SPEC = '**/gate.spec.js';
 
 const engineUseMap: Record<EngineName, ReturnType<typeof devices.valueOf> extends infer T ? T : never> = {
   chromium: devices['Desktop Chrome']!,
@@ -205,8 +216,18 @@ function buildProjects(): PlaywrightTestConfig['projects'] {
   return projects;
 }
 
-const VISUAL_TEST_MATCH = isVisual ? [VISUAL_SPEC] : ['**/*.spec.js'];
-const VISUAL_TEST_IGNORE = isVisual ? undefined : [VISUAL_SPEC];
+// Cadence-driven spec selection. Exactly one of these shapes applies:
+//   --gate   → run ONLY gate.spec.js
+//   --visual → run ONLY visual.spec.js
+//   default  → run everything EXCEPT the two flag-driven specs above
+// gate is checked first so --gate wins unambiguously (the flag conflict
+// check already rejects --gate + --visual, but ordering keeps this total).
+const SELECTED_TEST_MATCH = isGate
+  ? [GATE_SPEC]
+  : isVisual
+    ? [VISUAL_SPEC]
+    : ['**/*.spec.js'];
+const SELECTED_TEST_IGNORE = isGate || isVisual ? undefined : [VISUAL_SPEC, GATE_SPEC];
 
 const config: PlaywrightTestConfig = defineConfig({
   testDir: path.join(__dirname, 'specs'),
@@ -294,15 +315,15 @@ const config: PlaywrightTestConfig = defineConfig({
 
   ...(cfg.playwrightOverrides ?? {}),
 
-  // The visual-cadence testMatch/testIgnore is load-bearing — a consumer
-  // who sets `playwrightOverrides.testMatch` (e.g. to register an extra
-  // custom spec) would otherwise silently break --visual gating. Re-apply
-  // AFTER the spread so the gate always wins. Consumers who genuinely
+  // The cadence testMatch/testIgnore is load-bearing — a consumer who sets
+  // `playwrightOverrides.testMatch` (e.g. to register an extra custom spec)
+  // would otherwise silently break --visual / --gate gating. Re-apply AFTER
+  // the spread so the cadence selection always wins. Consumers who genuinely
   // want a different visual-cadence shape can set `cfg.visualProject`
   // (changes which project the spec runs on) — they don't need to
   // override testMatch.
-  testMatch: VISUAL_TEST_MATCH,
-  testIgnore: VISUAL_TEST_IGNORE,
+  testMatch: SELECTED_TEST_MATCH,
+  testIgnore: SELECTED_TEST_IGNORE,
 });
 
 export default config;

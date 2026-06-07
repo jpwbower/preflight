@@ -195,6 +195,24 @@ export interface PreflightConfig {
   visualThreshold?: number;
 
   /**
+   * `--gate` cadence: whether axe (a11y) violations are GATING.
+   *
+   * Render-health failures (non-2xx, blank render, uncaught page errors,
+   * console problems, failed requests) always fail the gate cadence — that
+   * floor is universal. Accessibility, by contrast, is audience-toggled:
+   *
+   *   - Internal surfaces (e.g. an operator cockpit): set `false` (default).
+   *     axe still runs and its findings are recorded in the manifest for
+   *     information, but they do NOT fail the run.
+   *   - Customer-facing surfaces: set `true`. axe violations fail the gate
+   *     cadence exactly like the `a11y` spec, making accessibility a
+   *     first-class release gate.
+   *
+   * Only consulted under `--gate`. Default `false` (record-but-non-gating).
+   */
+  gateA11yGating?: boolean;
+
+  /**
    * Authenticated-route lifecycle. Set to wire a setup hook that
    * produces a storageState (cookies + localStorage), which preflight
    * caches and passes to every Playwright project.
@@ -317,6 +335,7 @@ export interface ResolvedPreflightConfig {
   lighthouseThresholds?: PreflightLighthouseThresholds;
   visualProject?: string;
   visualThreshold?: number;
+  gateA11yGating?: boolean;
   auth?: PreflightAuth;
   networkPreset?: PreflightNetworkPreset;
   releaseOnlyPatterns?: string[];

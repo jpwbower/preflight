@@ -222,7 +222,34 @@ async function main() {
 
   // run | list | links | teardown — all need a resolved config.
   let configPath = parsed.configPath;
-  if (configPath) {
+
+  // --gate is a TRUSTED cadence: it must NEVER execute a PR-controlled
+  // preflight.config.ts. It requires an explicit --config pointing at an
+  // INERT .json file (data, not code), which we parse rather than import —
+  // so the route set under test is supplied by the trusted gate driver,
+  // never by code the PR controls.
+  if (parsed.gate) {
+    if (!configPath) {
+      process.stderr.write(
+        'preflight --gate: requires an explicit --config <file.json>. The gate cadence never\n' +
+          'auto-discovers or executes a preflight.config.ts — it loads an inert JSON config so the\n' +
+          'route set under test comes from the trusted gate driver, not from PR-controlled code.\n'
+      );
+      return EXIT.CONFIG_ERROR;
+    }
+    if (!path.isAbsolute(configPath)) configPath = path.resolve(consumerCwd, configPath);
+    if (path.extname(configPath).toLowerCase() !== '.json') {
+      process.stderr.write(
+        `preflight --gate: --config must be a .json file (got ${configPath}). The gate cadence\n` +
+          'refuses to execute a TypeScript/JavaScript config — supply an inert JSON config instead.\n'
+      );
+      return EXIT.CONFIG_ERROR;
+    }
+    if (!existsSync(configPath)) {
+      process.stderr.write(`preflight --gate: config file not found at ${configPath}\n`);
+      return EXIT.CONFIG_ERROR;
+    }
+  } else if (configPath) {
     if (!path.isAbsolute(configPath)) configPath = path.resolve(consumerCwd, configPath);
     if (!existsSync(configPath)) {
       process.stderr.write(`preflight: config file not found at ${configPath}\n`);
@@ -241,9 +268,14 @@ async function main() {
 
   let rawConfig;
   try {
-    rawConfig = await loadConsumerConfig(configPath, consumerCwd);
+    // Gate mode parses the inert JSON directly (never imports executable
+    // config code); every other cadence loads the .ts/.js config as usual.
+    rawConfig = parsed.gate
+      ? JSON.parse(readFileSync(configPath, 'utf8'))
+      : await loadConsumerConfig(configPath, consumerCwd);
   } catch (err) {
-    process.stderr.write(`preflight: ${err && err.message ? err.message : String(err)}\n`);
+    const prefix = parsed.gate ? `preflight --gate: failed to parse ${configPath}: ` : 'preflight: ';
+    process.stderr.write(`${prefix}${err && err.message ? err.message : String(err)}\n`);
     return EXIT.CONFIG_ERROR;
   }
 
