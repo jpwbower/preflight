@@ -109,6 +109,21 @@ jobs:
         working-directory: _ci_scratch
         run: npx preflight --smoke --ci
 
+      - name: Validate gate-inert backstops + determinism
+        # Runs the adversarial gate-inert harness — proves --gate rejects every
+        # executable / suppression config surface (and that the rejected modules
+        # never execute) AND that two renders produce an identical binding hash.
+        # Wired into the REQUIRED `smoke (ubuntu)` check so the gate's own
+        # guardrails are CI-ENFORCED, not merely documented. Ubuntu-only to stay
+        # cheap (1x billed); the inert/determinism logic is platform-independent.
+        # Builds dist + installs the repo-version chromium it needs.
+        if: matrix.label == 'ubuntu'
+        shell: bash
+        run: |
+          npm run build
+          npx playwright install chromium
+          node ci/gate-inert-validation.mjs
+
       - name: Upload last-run artefacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

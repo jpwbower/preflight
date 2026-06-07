@@ -4,6 +4,7 @@ import type { AxeResults, Result, NodeResult } from 'axe-core';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { applyNetworkPreset, loadPreflightConfig, isCi } from './_helpers.js';
+import { DEFAULT_CONSOLE_IGNORE } from '../console-ignore-defaults.js';
 import {
   sha256Hex,
   type GateAxeViolation,
@@ -62,7 +63,15 @@ if (!isGate) {
         const pageErrors: string[] = [];
         const failedRequests: string[] = [];
 
-        const ignoreList = cfg.consoleIgnore;
+        // Gate self-defends the "no suppression" invariant in the spec itself,
+        // not just upstream. The CLI + runner reject consumer consoleIgnore in
+        // --gate, but a DIRECT child-process invocation could still inject a
+        // suppression list via PREFLIGHT_CONFIG_JSON. So the gate render-health
+        // floor uses ONLY preflight's runner-owned DEFAULT_CONSOLE_IGNORE (the
+        // built-in noise filter), never the cfg-provided list. On the normal
+        // path cfg.consoleIgnore already resolves to exactly this default, so
+        // the binding hash is unchanged.
+        const ignoreList = DEFAULT_CONSOLE_IGNORE;
         const shouldIgnore = (text: string): boolean => ignoreList.some((rx) => rx.test(text));
 
         page.on('console', (msg) => {
@@ -126,7 +135,11 @@ if (!isGate) {
         // ClearType flake does not destabilise the manifest.
         const png = await page.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide' });
 
-        const disabledRuleNames = cfg.axeDisabled.map((d) => d.rule);
+        // Gate records the UNMODIFIED axe signal: cfg.axeDisabled (a finding
+        // suppression) is rejected upstream in --gate, and the spec ignores it
+        // regardless so a direct invocation cannot disable rules. On the normal
+        // path this is already empty, so the binding hash is unchanged.
+        const disabledRuleNames: string[] = [];
         let builder = new AxeBuilder({ page }).withTags(WCAG_TAGS);
         if (disabledRuleNames.length > 0) builder = builder.disableRules(disabledRuleNames);
         const axeResults: AxeResults = await builder.analyze();
