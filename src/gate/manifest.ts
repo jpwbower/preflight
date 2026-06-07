@@ -171,21 +171,48 @@ function bindingRecord(r: GateRouteRecord): unknown {
   };
 }
 
+/** The non-record fields folded into the binding hash (policy + coverage). */
+export interface ManifestBindingMeta {
+  schemaVersion: string;
+  project: string;
+  surface: string | null;
+  a11yGating: boolean;
+  routeCount: number;
+  coverageComplete: boolean;
+  missingRoutes: number[];
+}
+
 /**
- * Compute the binding manifest hash. The hash binds BOTH the rendered
- * `project` (engine__viewport) AND the ordered route records — so two
- * renders that used different projects can never collide on a matching
- * hash, and a mismatch caused by a different project is attributable (the
- * `project` field is right there in the manifest). The records are ordered
- * by their authoritative `index` (NOT capture order) and reduced to the
- * normalized binding view before hashing.
+ * Compute the binding manifest hash. It binds the ordered route records AND
+ * the full policy/coverage envelope — `project` (engine__viewport),
+ * `routeCount`, `coverageComplete`, `missingRoutes`, `schemaVersion`,
+ * `surface`, and `a11yGating` — so two manifests cannot collide on a matching
+ * hash while differing in the authoritative route SET or the gating policy
+ * (e.g. a narrowed route set, a different audience, or a11y on vs off). Records
+ * are ordered by their authoritative `index` (NOT capture order) and reduced to
+ * the normalized binding view before hashing; `missingRoutes` is sorted.
  *
  * A Phase-B checker recomputes this as:
- *   sha256(canonicalJson({ project, routes: [bindingRecord, ...] }))
+ *   sha256(canonicalJson({ schemaVersion, project, surface, a11yGating,
+ *     routeCount, coverageComplete, missingRoutes, routes: [bindingRecord,...] }))
  */
-export function computeManifestSha256(records: GateRouteRecord[], project: string): string {
+export function computeManifestSha256(
+  records: GateRouteRecord[],
+  meta: ManifestBindingMeta
+): string {
   const ordered = [...records].sort((a, b) => a.index - b.index).map(bindingRecord);
-  return sha256Hex(canonicalJson({ project, routes: ordered }));
+  return sha256Hex(
+    canonicalJson({
+      schemaVersion: meta.schemaVersion,
+      project: meta.project,
+      surface: meta.surface,
+      a11yGating: meta.a11yGating,
+      routeCount: meta.routeCount,
+      coverageComplete: meta.coverageComplete,
+      missingRoutes: [...meta.missingRoutes].sort((a, b) => a - b),
+      routes: ordered,
+    })
+  );
 }
 
 /**
@@ -206,6 +233,16 @@ export function assembleManifest(
   for (let i = 0; i < routeCount; i++) {
     if (!present.has(i)) missingRoutes.push(i);
   }
+  const coverageComplete = missingRoutes.length === 0;
+  const manifestSha256 = computeManifestSha256(ordered, {
+    schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
+    project: meta.project,
+    surface: meta.surface ?? null,
+    a11yGating: meta.a11yGating,
+    routeCount,
+    coverageComplete,
+    missingRoutes,
+  });
   return {
     schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
     preflightVersion: meta.preflightVersion,
@@ -214,9 +251,9 @@ export function assembleManifest(
     project: meta.project,
     a11yGating: meta.a11yGating,
     routeCount,
-    coverageComplete: missingRoutes.length === 0,
+    coverageComplete,
     missingRoutes,
-    manifestSha256: computeManifestSha256(ordered, meta.project),
+    manifestSha256,
     routes: ordered,
   };
 }
