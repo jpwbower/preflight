@@ -173,6 +173,11 @@ export function detectFlagConflict(args: ParsedArgs): string | null {
     if (args.release) return '--gate cannot be combined with --release (different cadences).';
     if (args.visual) return '--gate cannot be combined with --visual (different cadences).';
     if (args.links) return '--gate cannot be combined with --links (different cadences).';
+    // --only would narrow cfg.routes BEFORE the gate assembles coverage, so a
+    // gate run could report coverageComplete for a SHRUNK route set and silently
+    // omit required routes. The gate contract is one project x ALL authoritative
+    // routes; route-scoping is incompatible with fail-closed coverage.
+    if (args.only !== undefined) return '--gate cannot be combined with --only (the gate captures ALL authoritative routes; narrowing would silently shrink coverage).';
   }
   if (args.release && args.smoke) return '--release cannot be combined with --smoke.';
   return null;
