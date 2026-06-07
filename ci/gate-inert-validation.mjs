@@ -279,6 +279,11 @@ async function expectPlaywrightConfigBackstop(tmp, base, validateAndResolve, glo
     if (config.projects?.some((project) => project.name === 'evil')) {
       fail('playwright config backstop left override projects enabled in gate mode');
     }
+    if (config.retries !== 0) {
+      // Retries OFF in gate mode: a retried unhealthy route would overwrite its
+      // sidecar and a passing retry would mask the unhealthy evidence.
+      fail(`playwright config backstop did not pin gate retries to 0 (got ${JSON.stringify(config.retries)})`);
+    }
     if (existsSync(globalSetupSideEffect)) {
       fail('playwrightOverrides.globalSetup side effect file was created during config backstop');
     }
