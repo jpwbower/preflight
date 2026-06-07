@@ -24,7 +24,22 @@ import { createHash } from 'node:crypto';
  *     the binding `manifestSha256`. Screenshots are vision-review input,
  *     not the binding hash: full-page PNG bytes flake on Windows ClearType
  *     subpixel hinting regardless of any code change, so folding them into
- *     the binding hash would make it spuriously unstable.
+ *     the binding hash would make it spuriously unstable (and would break the
+ *     cross-render / cross-OS stability the DOM hash is designed to give).
+ *
+ *     Consequence, stated plainly so a reviewer can weigh it: a verdict bound
+ *     to `manifestSha256` is bound to the post-hydration DOM (+ axe +
+ *     render-health + policy envelope), NOT to the screenshot bytes — so the
+ *     DOM hash, not the screenshot, is THE surface fingerprint a verdict rests
+ *     on. The screenshot is an advisory aid for the (separate) vision layer.
+ *     Both are written by the SAME runner-driven render, so altering the
+ *     recorded `screenshotSha256`/`screenshotPath` after the fact (the only way
+ *     to desync them from the DOM the hash binds) requires write access to the
+ *     runner's own output dir — host control that exists independent of any
+ *     diff, outside this gate's honest-author threat model. The customer-facing
+ *     "evidence is first-class" surface (where the rendered image itself must
+ *     be bound) is a separate audience tier handled by a Phase-B checker that
+ *     binds evidence on one canonical render environment — not this primitive.
  */
 
 /** Current gate-manifest schema version. Bump on any breaking shape change. */

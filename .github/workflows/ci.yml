@@ -1,22 +1,27 @@
-# preflight CI — minimal GitHub Actions, by deliberate cost design.
+# preflight CI — all on GitHub Actions, by deliberate isolation design.
 #
-# preflight is CTR infrastructure, and Actions bills by OS multiplier (Linux 1x,
-# Windows 2x, macOS 10x), rounding each job up to the whole minute. So the
-# EXPENSIVE per-PR validation moved OFF Actions onto local compute: the required
-# `ctr/preflight-ci` check runs the full smoke + tarball-install + gate-manifest
-# determinism suite on Windows (Git-Bash) AND Linux (the Playwright Docker image)
-# locally, and `ctr/cross-model-review` runs the cross-model review. Both are
-# required by the branch-protection ruleset and posted by the local runners.
+# Every per-PR build/smoke step runs the PR's own code (npm ci, build, pack,
+# install, browser download, render). Running that on the operator's box (the
+# earlier "local CI" experiment) put PR-controlled code on a trusted host with
+# only a HOME-redirect + env-scrub between it and the filesystem — not a real
+# sandbox. GitHub's hosted runners ARE disposable VMs, so the smoke lanes live
+# here even though Actions bills by OS multiplier (Linux 1x, Windows 2x, macOS
+# 10x, each job rounded up to the whole minute). Ubuntu (~1 min) + Windows
+# (~4 min) per PR is the price of running untrusted build code off-host.
 #
-# What stays on Actions, and why:
-#   - smoke (ubuntu)  — runs on every PR + push to main. Linux is the 1x lane, so
-#     this is ~1 billed minute. It is an ADVISORY in-repo CI signal (NOT a
-#     required check — the local ctr/preflight-ci is the enforcement), kept so
-#     the per-PR build/smoke boundary stays auditable in the repo itself rather
-#     than living entirely in cross-repo config.
-#   - build-only (macos) — runs on version tags ONLY. macOS (10x) is the one
-#     platform with no local runtime, so it validates the compile + tarball shape
-#     at release time, where the rare 10-billed-minute cost is justified.
+# Required checks (enforced by the branch-protection ruleset, NOT here):
+#   - smoke (ubuntu) + smoke (windows) — this workflow, on every PR + main push.
+#   - ctr/cross-model-review          — the cross-model gate (posted locally by
+#                                        the gate App; reviews the diff, not CI).
+#
+# What runs, and when:
+#   - smoke (ubuntu) / smoke (windows) — pull_request + push to main. The full
+#     pack -> scratch-install -> `preflight --smoke --ci` on both OSes. The
+#     `--gate` cadence is exercised by the test suite (src/specs/gate.spec.ts),
+#     so there is no separate gate-determinism step here.
+#   - build-only (macos) — version tags ONLY. macOS (10x) is the one platform
+#     with no local runtime; it validates the compile + tarball shape at release
+#     time, where the rare 10-billed-minute cost is justified.
 
 name: ci
 
@@ -30,9 +35,18 @@ on:
 jobs:
   smoke:
     # PRs + main pushes only (skipped on tag pushes — that's the macOS lane).
-    name: smoke (ubuntu)
+    # Matrix labels are explicit so the check contexts are exactly
+    # `smoke (ubuntu)` / `smoke (windows)` (what the ruleset requires), not the
+    # `…-latest` runner image names.
+    name: smoke (${{ matrix.label }})
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: ubuntu }
+          - { os: windows-latest, label: windows }
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +76,11 @@ jobs:
           cp ci/preflight.smoke.config.ts _ci_scratch/preflight.config.ts
           cp -r ci/fixture _ci_scratch/fixture
           cd _ci_scratch
+          # No package-lock.json here — generate a minimal package.json so npm
+          # has somewhere to put node_modules. The tarball install pulls
+          # preflight as a real dep + we add @playwright/test (peerDep) and
+          # http-server (the webServer in preflight.smoke.config.ts).
+          # `type: module` is load-bearing: preflight is ESM-only.
           npm init -y >/dev/null
           npm pkg set type=module
           npm install --no-save \
@@ -72,7 +91,12 @@ jobs:
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ms-playwright
+          # Both OS cache locations; the key includes runner.os so Linux and
+          # Windows caches never collide, and the tarball name so a version
+          # bump invalidates.
+          path: |
+            ~/.cache/ms-playwright
+            ~/AppData/Local/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pack.outputs.tarball }}
 
       - name: Install Chromium browser
@@ -89,12 +113,14 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: preflight-last-run-ubuntu
+          name: preflight-last-run-${{ matrix.label }}
           path: _ci_scratch/.preflight/last-run/
           retention-days: 7
 
   build-only:
     # Version tags only — the macOS (10x) compile/tarball validation at release.
+    # No browser smoke (no Mac in the validation loop), but a compile-clean +
+    # tarball-shape signal is cheap insurance against a Linux/Windows-only API.
     name: build-only (macos)
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
