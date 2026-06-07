@@ -26,6 +26,7 @@ const KNOWN_KEYS = new Set<keyof PreflightConfig>([
   'lighthouseThresholds',
   'visualProject',
   'visualThreshold',
+  'gateA11yGating',
   'auth',
   'networkPreset',
   'releaseOnlyPatterns',
@@ -257,6 +258,18 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     visualThreshold = cfg.visualThreshold;
   }
 
+  let gateA11yGating: boolean | undefined;
+  if (cfg.gateA11yGating !== undefined) {
+    if (typeof cfg.gateA11yGating !== 'boolean') {
+      throw new PreflightConfigError(
+        'gateA11yGating, if set, must be a boolean. When true, axe violations fail the ' +
+          '--gate cadence (customer-facing surfaces); when false (default) axe is recorded ' +
+          'in the manifest but non-gating (internal surfaces). Render-health always gates.'
+      );
+    }
+    gateA11yGating = cfg.gateA11yGating;
+  }
+
   let auth: ResolvedPreflightConfig['auth'];
   if (cfg.auth !== undefined) {
     if (cfg.auth === null || typeof cfg.auth !== 'object') {
@@ -375,6 +388,7 @@ export function validateAndResolve(input: unknown): ResolvedPreflightConfig {
     lighthouseThresholds,
     visualProject,
     visualThreshold,
+    gateA11yGating,
     auth,
     networkPreset,
     releaseOnlyPatterns,

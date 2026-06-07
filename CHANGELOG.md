@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-07
+
+Adds a `--gate` cadence: a trusted capture mode for an external CI
+review gate that needs to bind a verdict to a *runner-produced*
+rendering of a surface, never to model-claimed evidence. It renders a
+route set on one project and emits a deterministic
+`gate-manifest.json` — ordered per-route records (post-hydration DOM
+hash, screenshot, axe summary, render-health) plus a binding overall
+hash. The DOM hash is load-bearing; the screenshot is recorded for
+vision review but deliberately excluded from the binding hash (PNG
+bytes flake on Windows ClearType hinting). Render-health always gates;
+a11y is audience-toggled via the new `gateA11yGating` field.
+
+### Added
+
+- **`--gate` cadence.** Runs only the new gate spec on a single
+  project and writes `.preflight/last-run/gate-manifest.json`: an
+  ordered `[{ index, name, path, status, renderHealth, domSha256,
+  domPath, screenshotSha256, screenshotPath, axe }]` plus a binding
+  `manifestSha256`, `coverageComplete`, and `missingRoutes`. The
+  binding hash is computed over the DOM + axe summary + render-health
+  with order-insensitive arrays sorted, so it is stable across renders
+  of a deterministic surface and a checker can recompute it. Screenshot
+  bytes are excluded from the binding hash.
+
+- **Inert-JSON-only config for `--gate`.** The gate cadence requires an
+  explicit `--config <file.json>` and never auto-discovers or executes
+  a `preflight.config.ts`. The config is parsed as data, not imported as
+  code — so the route set under test comes from the trusted gate driver,
+  not from PR-controlled code. A missing config, a non-`.json` config,
+  or unparseable JSON is rejected with exit code 2 (CONFIG_ERROR).
+
+- **`gateA11yGating` config field.** Audience-toggles whether axe (a11y)
+  violations fail the `--gate` cadence. Default `false` (record-but-
+  non-gating, for internal surfaces); set `true` for customer-facing
+  surfaces to make accessibility a first-class release gate. Render-
+  health failures (non-2xx, blank render, uncaught page errors, console
+  problems, failed requests) gate regardless of this setting.
+
+- **Fail-closed gate coverage.** If an authoritative route produces no
+  capture (worker crash, zero matched tests), `coverageComplete` is
+  `false`, the missing route indices are listed in `missingRoutes`, and
+  the run exits 1 even if Playwright itself reported success — a
+  silently-incomplete surface never reads as a green gate.
+
 ## [0.6.1] - 2026-05-27
 
 Fixes a default-cadence hang where a multi-engine multi-viewport run

@@ -137,6 +137,7 @@ preflight --smoke               chromium-only, mobile-375 viewport, smoke + a11y
 preflight --release             full + nvda + lighthouse + html-validate
 preflight --links               lychee link check only (skips Playwright)
 preflight --visual              visual regression on one project (skips other specs)
+preflight --gate --config <f.json>  trusted CI-gate capture: deterministic per-route manifest
 preflight init [--force]        drop a starter preflight.config.ts
 preflight init --ci             additionally drop .github/workflows/preflight.yml
 preflight list                  print the engine x viewport x spec matrix; do not run
@@ -157,7 +158,7 @@ preflight --no-auth             skip cfg.auth.setup even if configured
 
 ### Cadence
 
-The four cadences exist so each test pays its wallclock cost at the right moment:
+The cadences exist so each test pays its wallclock cost at the right moment:
 
 | Flag           | When to run            | Wallclock target | Covers |
 | -------------- | ---------------------- | ---------------- | ------ |
@@ -166,6 +167,82 @@ The four cadences exist so each test pays its wallclock cost at the right moment
 | `--release`    | pre-tag, before publish | 5–20 min         | full + NVDA (Windows) + Lighthouse (Chromium) + html-validate |
 | `--links`      | nightly cron           | depends on site  | lychee against the configured routes; no browser launch. v0.4 warns if lychee is older than 0.13.0. |
 | `--visual`     | opt-in (consumer choice) | depends on site | toHaveScreenshot per route on one project; baselines consumer-managed |
+| `--gate`       | driven by an external CI gate | depends on site | one project × all routes; emits a deterministic per-route manifest (see below) |
+
+### Gate cadence (`--gate`)
+
+`--gate` is a **trusted capture** cadence for a CI gate that needs to bind a
+verdict to a *runner-produced* rendering of a surface — not to evidence a
+reviewer claims. It renders a route set on **one project** and writes a
+deterministic `.preflight/last-run/gate-manifest.json`:
+
+```jsonc
+{
+  "schemaVersion": "1",
+  "manifestSha256": "…",          // binding hash over the ordered route records
+  "coverageComplete": true,        // false ⇒ a route produced no capture (fail closed)
+  "a11yGating": false,             // echoes cfg.gateA11yGating
+  "routes": [
+    {
+      "index": 0, "name": "home", "path": "/", "status": 200,
+      "renderHealth": { "ok": true, "blank": false, "domTextLength": 336,
+                        "pageErrors": [], "consoleErrors": [], "failedRequests": [] },
+      "domSha256": "…",            // post-hydration DOM hash (load-bearing)
+      "domPath": "gate/gate-route-0.dom.html",
+      "screenshotSha256": "…",     // provenance only — NOT in the binding hash
+      "screenshotPath": "gate/gate-route-0.png",
+      "axe": { "violationCount": 0, "violations": [] }
+    }
+  ]
+}
+```
+
+Key properties:
+
+- **Inert JSON config only.** `--gate` requires an explicit
+  `--config <file.json>` and **never** auto-discovers or executes a
+  `preflight.config.ts`. The route set under test comes from the trusted gate
+  driver as data, not from PR-controlled code. A non-`.json` config is refused.
+- **The DOM hash is load-bearing; the screenshot is not.** `manifestSha256` is
+  computed over the post-hydration DOM + axe summary + render-health (with
+  order-insensitive arrays sorted), so it is **stable across renders of a
+  deterministic surface** and a checker can recompute it. Screenshot bytes are
+  recorded for vision review + file integrity but are **excluded** from the
+  binding hash — full-page PNGs flake on Windows ClearType hinting regardless of
+  any code change.
+- **Render-health always gates; a11y is audience-toggled.** A non-2xx status,
+  blank render, uncaught page error, console problem, or failed request fails
+  the cadence (exit 1) — but the route is still recorded in the manifest first
+  (write-then-assert). axe violations gate **only** when `gateA11yGating: true`
+  (customer-facing surfaces); the default `false` records axe findings for
+  information without failing the run (internal surfaces).
+- **Single deterministic project, bound into the hash.** Defaults to
+  `chromium__desktop-1280`; narrow `engines`/`viewports` to one each in the JSON
+  config, or pass `--engine`, to change it (the rendered project is logged when a
+  multi-project config is collapsed). The project is part of `manifestSha256`, so
+  two renders that used different projects can never collide on a matching hash.
+- **Determinism is a precondition of the surface, not a guarantee.** The binding
+  hash is stable only for a surface whose post-hydration DOM is itself stable. A
+  surface that emits hydration nonces, randomized IDs (`:r1:`-style framework
+  IDs), timestamps, or content that lands after the settle window will produce a
+  different `domSha256` per render — for such a surface the manifest is an
+  **inspection aid**, and the gate should rest on the vision + mechanical-floor
+  layers rather than the content hash. (A static, deterministic build is the case
+  the binding hash is designed for.)
+
+```bash
+npx preflight --gate --config gate-config.json
+```
+
+`--gate` is the engine an external review gate drives (build + serve the surface
+in an isolated environment, then render twice and compare `manifestSha256` to
+catch nondeterminism). On its own it is a faithful, fail-closed capture tool.
+
+> **Security.** The inert JSON config is parsed as data, never executed — but a
+> `webServer.command` in it IS spawned as a shell command (that is how the gate
+> driver starts the surface). So the `--config` path must always be **driver-
+> controlled**, never a path a PR can write. The trust boundary is "a PR cannot
+> supply the gate config," not "the config is harmless."
 
 ### Wall-clock cap
 
@@ -180,6 +257,7 @@ without a cap, the parent runner would block forever on child exit.
 | Cadence       | Default cap |
 | ------------- | ----------- |
 | `--smoke`     | 5 min       |
+| `--gate`      | 15 min      |
 | (default)     | 30 min      |
 | `--visual`    | 30 min      |
 | `--release`   | 60 min      |

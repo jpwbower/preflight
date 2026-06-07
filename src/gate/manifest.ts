@@ -1,0 +1,222 @@
+import { createHash } from 'node:crypto';
+
+/**
+ * `preflight --gate` manifest model.
+ *
+ * The gate cadence renders a runner-supplied authoritative route set and
+ * emits a DETERMINISTIC per-route manifest that an external gate (the CTR
+ * cross-model-review runner) binds a verdict to. The trust property: the
+ * manifest is produced by the runner-driven render, never by a model's
+ * claimed evidence, so a reviewer cannot fabricate the surface.
+ *
+ * Two hash layers, by deliberate design:
+ *
+ *   - `domSha256` (per route) and the overall `manifestSha256` are the
+ *     BINDING hash. They are computed over the post-hydration DOM + axe
+ *     summary + render-health, with all order-sensitive arrays sorted so
+ *     capture-order nondeterminism cannot flip the hash. For a static
+ *     (deterministic) surface this hash is stable across renders and is
+ *     what the checker recomputes. For an SSR surface it is an inspection
+ *     aid, not a binding fingerprint (the surface is host/time-dependent).
+ *
+ *   - `screenshotSha256` (per route) is recorded for provenance + file
+ *     integrity, but the screenshot BYTES are deliberately EXCLUDED from
+ *     the binding `manifestSha256`. Screenshots are vision-review input,
+ *     not the binding hash: full-page PNG bytes flake on Windows ClearType
+ *     subpixel hinting regardless of any code change, so folding them into
+ *     the binding hash would make it spuriously unstable.
+ */
+
+/** Current gate-manifest schema version. Bump on any breaking shape change. */
+export const GATE_MANIFEST_SCHEMA_VERSION = '1';
+
+export interface GateAxeViolation {
+  id: string;
+  impact: string | null;
+  help: string;
+  /** CSS-selector targets of the violating nodes (sorted for stable hashing). */
+  nodeTargets: string[];
+}
+
+export interface GateAxeSummary {
+  violationCount: number;
+  violations: GateAxeViolation[];
+}
+
+/**
+ * Render-health signal — the universal floor that gates EVERY audience
+ * (a11y/axe gating is audience-toggled separately, render-health is not).
+ * `ok` is true only when the route loaded 2xx, was not blank, threw no
+ * uncaught page errors, logged no console problems (after the consumer
+ * ignore-list), and made no failed network requests.
+ */
+export interface GateRenderHealth {
+  ok: boolean;
+  status: number | null;
+  blank: boolean;
+  /** Length of the body's rendered innerText — surfaces near-blank renders. */
+  domTextLength: number;
+  pageErrors: string[];
+  consoleErrors: string[];
+  failedRequests: string[];
+}
+
+export interface GateRouteRecord {
+  /** Index into the runner's authoritative route set — the stable order key. */
+  index: number;
+  name: string;
+  path: string;
+  status: number | null;
+  renderHealth: GateRenderHealth;
+  /** sha256 of the post-hydration DOM (load-bearing — part of the binding hash). */
+  domSha256: string;
+  /** Path to the captured DOM snapshot, relative to the last-run dir. */
+  domPath: string;
+  /** sha256 of the full-page screenshot (provenance/integrity; NOT in binding hash). */
+  screenshotSha256: string;
+  /** Path to the captured screenshot, relative to the last-run dir. */
+  screenshotPath: string;
+  axe: GateAxeSummary;
+}
+
+export interface GateManifestMeta {
+  preflightVersion: string;
+  /** ISO timestamp — recorded but EXCLUDED from the binding hash. */
+  finishedAt: string;
+  /** Optional surface label forwarded by the runner (e.g. "cockpit"). */
+  surface?: string;
+  /** Resolved engine__viewport project the gate rendered on. */
+  project: string;
+  /** Audience-toggle echo: whether axe violations were gating this run. */
+  a11yGating: boolean;
+}
+
+export interface GateManifest extends GateManifestMeta {
+  schemaVersion: string;
+  routeCount: number;
+  /** False if any authoritative route produced no capture (worker crash, etc.). */
+  coverageComplete: boolean;
+  /** Indices of authoritative routes that produced no record. */
+  missingRoutes: number[];
+  /** The binding hash — sha256 over the ordered, normalized binding view. */
+  manifestSha256: string;
+  routes: GateRouteRecord[];
+}
+
+export function sha256Hex(data: Buffer | string): string {
+  return createHash('sha256').update(data).digest('hex');
+}
+
+/**
+ * Deterministic JSON serialization: object keys are emitted in sorted
+ * order recursively, so two structurally-equal values always serialize
+ * to byte-identical strings regardless of insertion order. Array order is
+ * preserved — callers must pre-sort any array whose order is not itself
+ * semantically meaningful (see `bindingRecord`).
+ */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortDeep(value));
+}
+
+function sortDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortDeep);
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      out[key] = sortDeep((value as Record<string, unknown>)[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * The normalized, binding view of one route record. Excludes the
+ * screenshot bytes-hash + file paths + everything non-semantic, and sorts
+ * the order-insensitive arrays (console/page/network problems, axe
+ * violations, node targets) so a different capture order cannot change the
+ * binding hash while a genuine content change still does.
+ *
+ * `status` is carried inside `renderHealth.status` only — not duplicated at
+ * the top level — so the two can never disagree inside the hash.
+ */
+function bindingRecord(r: GateRouteRecord): unknown {
+  return {
+    index: r.index,
+    name: r.name,
+    path: r.path,
+    renderHealth: {
+      ok: r.renderHealth.ok,
+      status: r.renderHealth.status,
+      blank: r.renderHealth.blank,
+      domTextLength: r.renderHealth.domTextLength,
+      pageErrors: [...r.renderHealth.pageErrors].sort(),
+      consoleErrors: [...r.renderHealth.consoleErrors].sort(),
+      failedRequests: [...r.renderHealth.failedRequests].sort(),
+    },
+    domSha256: r.domSha256,
+    axe: {
+      violationCount: r.axe.violationCount,
+      violations: [...r.axe.violations]
+        .map((v) => ({
+          id: v.id,
+          impact: v.impact,
+          help: v.help,
+          nodeTargets: [...v.nodeTargets].sort(),
+        }))
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+    },
+  };
+}
+
+/**
+ * Compute the binding manifest hash. The hash binds BOTH the rendered
+ * `project` (engine__viewport) AND the ordered route records — so two
+ * renders that used different projects can never collide on a matching
+ * hash, and a mismatch caused by a different project is attributable (the
+ * `project` field is right there in the manifest). The records are ordered
+ * by their authoritative `index` (NOT capture order) and reduced to the
+ * normalized binding view before hashing.
+ *
+ * A Phase-B checker recomputes this as:
+ *   sha256(canonicalJson({ project, routes: [bindingRecord, ...] }))
+ */
+export function computeManifestSha256(records: GateRouteRecord[], project: string): string {
+  const ordered = [...records].sort((a, b) => a.index - b.index).map(bindingRecord);
+  return sha256Hex(canonicalJson({ project, routes: ordered }));
+}
+
+/**
+ * Assemble the full gate manifest from the per-route records the spec
+ * captured. `routeCount` is the authoritative route count (from the
+ * runner's config); any index in 0..routeCount-1 with no record is
+ * reported in `missingRoutes` and flips `coverageComplete` to false —
+ * fail-closed against a surface that silently failed to render.
+ */
+export function assembleManifest(
+  meta: GateManifestMeta,
+  records: GateRouteRecord[],
+  routeCount: number
+): GateManifest {
+  const ordered = [...records].sort((a, b) => a.index - b.index);
+  const present = new Set(ordered.map((r) => r.index));
+  const missingRoutes: number[] = [];
+  for (let i = 0; i < routeCount; i++) {
+    if (!present.has(i)) missingRoutes.push(i);
+  }
+  return {
+    schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
+    preflightVersion: meta.preflightVersion,
+    finishedAt: meta.finishedAt,
+    ...(meta.surface ? { surface: meta.surface } : {}),
+    project: meta.project,
+    a11yGating: meta.a11yGating,
+    routeCount,
+    coverageComplete: missingRoutes.length === 0,
+    missingRoutes,
+    manifestSha256: computeManifestSha256(ordered, meta.project),
+    routes: ordered,
+  };
+}
