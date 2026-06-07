@@ -2,7 +2,7 @@
 import http from 'node:http';
 import net from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -83,6 +83,26 @@ async function runValidation() {
       );
     } finally {
       rmSync(insideConfig, { force: true });
+    }
+
+    // Cwd-INDEPENDENT provenance: a config inside a FOREIGN git checkout is
+    // rejected even when preflight runs from an unrelated cwd. Simulates the
+    // honest misconfig — the driver runs preflight from a scratch dir but
+    // --config points into the real PR checkout. cwd here is repoRoot (NOT an
+    // ancestor of the fake repo), so only the config's own enclosing-repo check
+    // can catch it.
+    const fakeRepo = mkdtempSync(path.join(os.tmpdir(), 'preflight-gate-fakerepo-'));
+    try {
+      mkdirSync(path.join(fakeRepo, '.git'));
+      const foreignConfig = path.join(fakeRepo, 'gate-config.json');
+      writeFileSync(foreignConfig, JSON.stringify(base, null, 2), 'utf8');
+      expectConfigError(
+        'absolute --config inside a FOREIGN git checkout (scratch cwd)',
+        runPreflight(['--gate', '--config', foreignConfig], repoRoot),
+        'inside a git checkout'
+      );
+    } finally {
+      rmSync(fakeRepo, { recursive: true, force: true });
     }
 
     expectConfigError(
@@ -224,9 +244,9 @@ function writeConfig(tmp, name, config) {
   return p;
 }
 
-function runPreflight(args) {
+function runPreflight(args, cwd = ciDir) {
   return spawnSync(process.execPath, [binPath, ...args], {
-    cwd: ciDir,
+    cwd,
     encoding: 'utf8',
     env: { ...process.env, FORCE_COLOR: '0' },
     timeout: 240_000,
