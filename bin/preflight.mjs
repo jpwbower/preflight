@@ -3,7 +3,7 @@
 // All non-trivial logic lives in dist/cli/*.js (compiled from src/cli/*.ts).
 
 import path from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, writeFile, copyFile, access } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -67,6 +67,29 @@ function discoverConfigPath(consumerCwd) {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+function isPathInsideOrEqual(candidatePath, rootPath) {
+  const relative = path.relative(rootPath, candidatePath);
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function findProjectBoundary(startDir) {
+  let dir = path.resolve(startDir);
+  let nearestPackageJsonDir = null;
+  while (true) {
+    if (existsSync(path.join(dir, '.git'))) return dir;
+    if (nearestPackageJsonDir === null && existsSync(path.join(dir, 'package.json'))) {
+      nearestPackageJsonDir = dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return nearestPackageJsonDir ?? path.resolve(startDir);
+    dir = parent;
+  }
+}
+
+function realPath(p) {
+  return realpathSync.native ? realpathSync.native(p) : realpathSync(p);
 }
 
 async function loadConsumerConfig(configPath, consumerCwd) {
@@ -225,19 +248,15 @@ async function main() {
 
   // --gate is a TRUSTED cadence: it must NEVER execute a PR-controlled
   // preflight.config.ts. It requires an explicit --config pointing at an
-  // INERT .json file (data, not code), which we parse rather than import —
-  // so the route set under test is supplied by the trusted gate driver,
-  // never by code the PR controls.
+  // INERT .json file (data, not code), parsed directly and then checked
+  // against a gate-only allowlist before normal config resolution.
   //
-  // CONTRACT (caller's responsibility — preflight cannot verify it here): the
-  // --config path MUST be one the gate driver controls, NOT a path a PR can
-  // write. The parsed JSON drives the authoritative route set, gateA11yGating,
-  // the rendered project, AND the `webServer.command` that IS spawned as a
-  // shell command to start the surface. If a PR can author that file it can
-  // shrink coverage, flip the audience policy, or run an arbitrary command —
-  // so "inert JSON" means "not executed AS a module," not "harmless." The gate
-  // runner enforces driver-controlled provenance (it stages the config outside
-  // the PR checkout); see README "Gate cadence > Security".
+  // CONTRACT: the trusted gate driver must stage this JSON outside the PR
+  // checkout and pass that absolute path. preflight enforces the mechanical
+  // footguns it can see (absolute .json, outside the realpathed project
+  // boundary, inert-key allowlist, no config-provided server command). It
+  // cannot prove who wrote a sibling temp file, so config provenance remains
+  // a runner responsibility; see README "Gate cadence > Security".
   if (parsed.gate) {
     if (!configPath) {
       process.stderr.write(
@@ -272,6 +291,17 @@ async function main() {
       process.stderr.write(`preflight --gate: config file not found at ${configPath}\n`);
       return EXIT.CONFIG_ERROR;
     }
+    const gateProjectRoot = realPath(findProjectBoundary(consumerCwd));
+    const gateConfigPath = realPath(configPath);
+    if (isPathInsideOrEqual(gateConfigPath, gateProjectRoot)) {
+      process.stderr.write(
+        `preflight --gate: --config must be staged outside the current project checkout (got "${configPath}").\n` +
+          `Resolved project boundary: ${gateProjectRoot}\n` +
+          'An absolute path inside the checkout can still be PR-controlled; the trusted gate driver\n' +
+          'must stage the inert JSON config outside that boundary and pass the absolute path.\n'
+      );
+      return EXIT.CONFIG_ERROR;
+    }
   } else if (configPath) {
     if (!path.isAbsolute(configPath)) configPath = path.resolve(consumerCwd, configPath);
     if (!existsSync(configPath)) {
@@ -293,13 +323,8 @@ async function main() {
   try {
     // Gate mode parses the inert JSON directly (never imports executable
     // config code); every other cadence loads the .ts/.js config as usual.
-    // NOTE: this branch ONLY changes how the config is LOADED, not how it is
-    // validated. Both `rawConfig` paths converge on validateAndResolve() below
-    // (the SAME call for every cadence), so a gate JSON gets identical default
-    // resolution (engines/viewports/consoleIgnore, …) and identical validation
-    // (routes/gateA11yGating typos, bad shapes) as a .ts config. A malformed
-    // gate config therefore yields CONFIG_ERROR via validateAndResolve, never
-    // an unvalidated object reaching the runner.
+    // Gate JSON is then checked against a gate-only allowlist before it
+    // converges on validateAndResolve() for shared schema/default handling.
     rawConfig = parsed.gate
       ? JSON.parse(readFileSync(configPath, 'utf8'))
       : await loadConsumerConfig(configPath, consumerCwd);
@@ -319,9 +344,10 @@ async function main() {
 
   // Validate via defineConfig — accepts either a raw config object OR an
   // already-resolved one (idempotent). This is what catches typos.
-  const { validateAndResolve, PreflightConfigError } = require_('../dist/defineConfig.js');
+  const { validateAndResolve, validateGateConfig, PreflightConfigError } = require_('../dist/defineConfig.js');
   let resolved;
   try {
+    if (parsed.gate) validateGateConfig(rawConfig);
     resolved = validateAndResolve(rawConfig);
   } catch (err) {
     if (err instanceof PreflightConfigError || (err && err.name === 'PreflightConfigError')) {

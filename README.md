@@ -200,9 +200,19 @@ deterministic `.preflight/last-run/gate-manifest.json`:
 Key properties:
 
 - **Inert JSON config only.** `--gate` requires an explicit
-  `--config <file.json>` and **never** auto-discovers or executes a
-  `preflight.config.ts`. The route set under test comes from the trusted gate
-  driver as data, not from PR-controlled code. A non-`.json` config is refused.
+  `--config <file.json>` staged outside the current project checkout and
+  **never** auto-discovers or executes a `preflight.config.ts`. The route set
+  under test comes from the trusted gate driver as data, not from PR-controlled
+  code. A non-`.json` config, a relative path, or an absolute path inside the
+  checkout is refused.
+- **Gate JSON is a strict inert subset.** Allowed top-level keys are:
+  `baseURL`, `routes`, `webServer`, `engines`, `viewports`, `readyMarker`,
+  `locale`, `timezoneId`, `gateA11yGating`, `networkPreset`, and
+  `runnerTimeoutMs`. `auth`, `playwrightOverrides`, `releaseOnlyPatterns`,
+  `consoleIgnore`, `axeDisabled`, and non-gate release/visual fields fail with
+  `CONFIG_ERROR` rather than being silently ignored. `webServer` must be
+  `false`; the trusted gate runner starts the surface out-of-band and the JSON
+  points `baseURL` at that already-running server.
 - **The DOM hash is load-bearing; the screenshot is not.** `manifestSha256` is
   computed over the post-hydration DOM + axe summary + render-health (with
   order-insensitive arrays sorted), so it is **stable across renders of a
@@ -231,18 +241,21 @@ Key properties:
   the binding hash is designed for.)
 
 ```bash
-npx preflight --gate --config gate-config.json
+npx preflight --gate --config /absolute/path/outside/checkout/gate-config.json
 ```
 
 `--gate` is the engine an external review gate drives (build + serve the surface
 in an isolated environment, then render twice and compare `manifestSha256` to
 catch nondeterminism). On its own it is a faithful, fail-closed capture tool.
 
-> **Security.** The inert JSON config is parsed as data, never executed — but a
-> `webServer.command` in it IS spawned as a shell command (that is how the gate
-> driver starts the surface). So the `--config` path must always be **driver-
-> controlled**, never a path a PR can write. The trust boundary is "a PR cannot
-> supply the gate config," not "the config is harmless."
+> **Security.** The inert JSON config is parsed as data and checked against the
+> gate allowlist, never imported as code. That closes config-provided module
+> hooks (`auth.setup`, `globalSetup`, custom reporters/specs, etc.) and
+> config-provided shell commands (`webServer.command`). The JSON still chooses
+> the route set and policy data, so the `--config` path must always be
+> **driver-controlled**, never a path a PR can write. preflight rejects relative
+> paths and realpathed absolute paths inside the current project checkout;
+> provenance of the staged file remains the gate runner's responsibility.
 
 ### Wall-clock cap
 

@@ -105,6 +105,17 @@ export async function run(opts: RunOptions): Promise<RunResult> {
 
   const cfg = applyRunFlagsToConfig(rawConfig, args);
 
+  if (args.gate) {
+    const disallowed = gateDisallowedResolvedKeys(cfg);
+    if (disallowed.length > 0) {
+      process.stderr.write(
+        `preflight --gate: resolved config includes disallowed gate key(s): ${disallowed.join(', ')}. ` +
+          'Gate config must be inert data; remove executable hooks, Playwright overrides, and finding suppressions.\n'
+      );
+      return { exitCode: 2 };
+    }
+  }
+
   // --gate collapses to a single project so each route is captured once and
   // the manifest hash is stable. If the inert config resolved to more than
   // one engine/viewport (e.g. it omitted them and inherited the 3×5 default),
@@ -137,9 +148,9 @@ export async function run(opts: RunOptions): Promise<RunResult> {
 
   // Auth lifecycle: if cfg.auth is set and --no-auth was not passed, run
   // the consumer's setup module (or reuse a cached storageState that is
-  // still within its expiry window). The resolved path is forwarded to
-  // playwright.config.ts via PREFLIGHT_CONFIG_JSON so every project's
-  // use.storageState picks it up.
+  // still within its expiry window). This block is unreachable in --gate:
+  // gateDisallowedResolvedKeys() above fail-closes cfg.auth before any
+  // module path can be imported.
   let storageStatePath: string | undefined;
   if (cfg.auth && !args.noAuth) {
     try {
@@ -325,6 +336,24 @@ function applyRunFlagsToConfig(
   }
 
   return { ...cfg, engines, viewports };
+}
+
+function gateDisallowedResolvedKeys(cfg: ResolvedPreflightConfig): string[] {
+  const disallowed: string[] = [];
+  if (cfg.webServer !== false) disallowed.push('webServer.command');
+  if (cfg.auth) disallowed.push('auth');
+  if (cfg.playwrightOverrides) disallowed.push('playwrightOverrides');
+  if (cfg.releaseOnlyPatterns) disallowed.push('releaseOnlyPatterns');
+  if (cfg.consoleIgnore.length > 0) disallowed.push('consoleIgnore');
+  if (cfg.axeDisabled.length > 0) disallowed.push('axeDisabled');
+  if (cfg.lighthouseThresholds) disallowed.push('lighthouseThresholds');
+  if (cfg.visualProject) disallowed.push('visualProject');
+  if (cfg.visualThreshold !== undefined) disallowed.push('visualThreshold');
+  if (cfg.htmlValidateRaw !== undefined) disallowed.push('htmlValidateRaw');
+  for (const [i, route] of cfg.routes.entries()) {
+    if (route.lighthouseThresholds) disallowed.push(`routes[${i}].lighthouseThresholds`);
+  }
+  return disallowed;
 }
 
 const VALID_ENGINES: ReadonlySet<EngineName> = new Set(['chromium', 'firefox', 'webkit']);
