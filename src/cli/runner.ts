@@ -338,12 +338,21 @@ function applyRunFlagsToConfig(
   return { ...cfg, engines, viewports };
 }
 
+/**
+ * Gate backstop: list any resolved-config key that a gate config must not carry.
+ * This runs on the RESOLVED config BEFORE the runner prepends its own
+ * DEFAULT_CONSOLE_IGNORE for the child (that merge happens later — see
+ * `consoleIgnoreCombined`). So for a clean inert gate config `cfg.consoleIgnore`
+ * is [] here and is NOT rejected; this check only fires on a CONSUMER-supplied
+ * consoleIgnore/axeDisabled (a suppression), never on preflight's own default.
+ */
 function gateDisallowedResolvedKeys(cfg: ResolvedPreflightConfig): string[] {
   const disallowed: string[] = [];
   if (cfg.webServer !== false) disallowed.push('webServer.command');
   if (cfg.auth) disallowed.push('auth');
   if (cfg.playwrightOverrides) disallowed.push('playwrightOverrides');
   if (cfg.releaseOnlyPatterns) disallowed.push('releaseOnlyPatterns');
+  // Resolved (pre-default-merge) consumer consoleIgnore only; [] for inert.
   if (cfg.consoleIgnore.length > 0) disallowed.push('consoleIgnore');
   if (cfg.axeDisabled.length > 0) disallowed.push('axeDisabled');
   if (cfg.lighthouseThresholds) disallowed.push('lighthouseThresholds');

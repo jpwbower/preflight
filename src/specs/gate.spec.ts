@@ -68,9 +68,16 @@ if (!isGate) {
         // --gate, but a DIRECT child-process invocation could still inject a
         // suppression list via PREFLIGHT_CONFIG_JSON. So the gate render-health
         // floor uses ONLY preflight's runner-owned DEFAULT_CONSOLE_IGNORE (the
-        // built-in noise filter), never the cfg-provided list. On the normal
-        // path cfg.consoleIgnore already resolves to exactly this default, so
-        // the binding hash is unchanged.
+        // built-in noise filter), never the cfg-provided list.
+        //
+        // Hash note: this does NOT change the binding hash. On the normal path
+        // the runner serialises DEFAULT_CONSOLE_IGNORE into the config this spec
+        // receives anyway — it PREPENDS the default to the resolved
+        // cfg.consoleIgnore (which is [] for an inert gate config) when building
+        // PREFLIGHT_CONFIG_JSON (see runner.ts consoleIgnoreCombined). That
+        // merge happens AFTER the gate backstop, which sees the resolved
+        // cfg.consoleIgnore = [] and therefore does NOT reject a clean config.
+        // So reading the default directly here yields the same effective list.
         const ignoreList = DEFAULT_CONSOLE_IGNORE;
         const shouldIgnore = (text: string): boolean => ignoreList.some((rx) => rx.test(text));
 
