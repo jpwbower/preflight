@@ -247,7 +247,20 @@ async function main() {
       );
       return EXIT.CONFIG_ERROR;
     }
-    if (!path.isAbsolute(configPath)) configPath = path.resolve(consumerCwd, configPath);
+    // ABSOLUTE path required (do NOT resolve a relative path against cwd): a
+    // gate run launched from inside the PR checkout with `--config foo.json`
+    // would otherwise load a PR-controlled file. Forcing the trusted driver to
+    // pass the absolute path of the config it staged closes that honest-error
+    // path — the relative form is exactly the footgun the contract warns about.
+    if (!path.isAbsolute(configPath)) {
+      process.stderr.write(
+        `preflight --gate: --config must be an ABSOLUTE path (got "${configPath}"). The gate\n` +
+          'cadence refuses to resolve a relative path against the current directory — a gate run\n' +
+          'launched from inside the PR checkout would then load a PR-controlled config. The trusted\n' +
+          'gate driver must pass the absolute path of the config it staged.\n'
+      );
+      return EXIT.CONFIG_ERROR;
+    }
     if (path.extname(configPath).toLowerCase() !== '.json') {
       process.stderr.write(
         `preflight --gate: --config must be a .json file (got ${configPath}). The gate cadence\n` +

@@ -85,6 +85,22 @@ if (!isGate) {
           if (shouldIgnore(url) || (failure && shouldIgnore(failure.errorText))) return;
           failedRequests.push(`${req.method()} ${url} :: ${failure?.errorText ?? 'unknown'}`);
         });
+        // `requestfailed` only fires for network-level failures (DNS, refused,
+        // aborted). A subresource (script/style/image/XHR/fetch/iframe) that
+        // returns HTTP 4xx/5xx COMPLETES with a status and never fires
+        // requestfailed — so without this it would pass the render-health floor.
+        // Fold those into failedRequests too. The top-level document's status is
+        // already enforced via `statusOk`, so skip the main-frame document
+        // response to avoid double-reporting.
+        page.on('response', (resp) => {
+          const respStatus = resp.status();
+          if (respStatus < 400) return;
+          const req = resp.request();
+          if (req.frame() === page.mainFrame() && req.resourceType() === 'document') return;
+          const url = resp.url();
+          if (shouldIgnore(url)) return;
+          failedRequests.push(`${req.method()} ${url} :: HTTP ${respStatus}`);
+        });
 
         await applyNetworkPreset(page, cfg);
 
