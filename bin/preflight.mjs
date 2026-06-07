@@ -228,6 +228,16 @@ async function main() {
   // INERT .json file (data, not code), which we parse rather than import —
   // so the route set under test is supplied by the trusted gate driver,
   // never by code the PR controls.
+  //
+  // CONTRACT (caller's responsibility — preflight cannot verify it here): the
+  // --config path MUST be one the gate driver controls, NOT a path a PR can
+  // write. The parsed JSON drives the authoritative route set, gateA11yGating,
+  // the rendered project, AND the `webServer.command` that IS spawned as a
+  // shell command to start the surface. If a PR can author that file it can
+  // shrink coverage, flip the audience policy, or run an arbitrary command —
+  // so "inert JSON" means "not executed AS a module," not "harmless." The gate
+  // runner enforces driver-controlled provenance (it stages the config outside
+  // the PR checkout); see README "Gate cadence > Security".
   if (parsed.gate) {
     if (!configPath) {
       process.stderr.write(
@@ -270,6 +280,13 @@ async function main() {
   try {
     // Gate mode parses the inert JSON directly (never imports executable
     // config code); every other cadence loads the .ts/.js config as usual.
+    // NOTE: this branch ONLY changes how the config is LOADED, not how it is
+    // validated. Both `rawConfig` paths converge on validateAndResolve() below
+    // (the SAME call for every cadence), so a gate JSON gets identical default
+    // resolution (engines/viewports/consoleIgnore, …) and identical validation
+    // (routes/gateA11yGating typos, bad shapes) as a .ts config. A malformed
+    // gate config therefore yields CONFIG_ERROR via validateAndResolve, never
+    // an unvalidated object reaching the runner.
     rawConfig = parsed.gate
       ? JSON.parse(readFileSync(configPath, 'utf8'))
       : await loadConsumerConfig(configPath, consumerCwd);
