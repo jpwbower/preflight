@@ -1,27 +1,27 @@
 import type { Page } from '@playwright/test';
 import type {
-  PreflightNetworkPreset,
-  PreflightNetworkPresetCustom,
-  ResolvedPreflightConfig,
+  VantageNetworkPreset,
+  VantageNetworkPresetCustom,
+  ResolvedVantageConfig,
 } from '../types.js';
 
 interface SerialisedRegExp {
   source: string;
   flags: string;
 }
-interface SerialisedConfig extends Omit<ResolvedPreflightConfig, 'consoleIgnore'> {
+interface SerialisedConfig extends Omit<ResolvedVantageConfig, 'consoleIgnore'> {
   consoleIgnore: SerialisedRegExp[];
 }
 
 /**
  * Shared loader for the env-injected resolved config. Specs import this
- * instead of re-parsing PREFLIGHT_CONFIG_JSON themselves.
+ * instead of re-parsing VANTAGE_CONFIG_JSON themselves.
  */
-export function loadPreflightConfig(): ResolvedPreflightConfig {
-  const raw = process.env.PREFLIGHT_CONFIG_JSON;
+export function loadVantageConfig(): ResolvedVantageConfig {
+  const raw = process.env.VANTAGE_CONFIG_JSON;
   if (!raw) {
     throw new Error(
-      'preflight spec: PREFLIGHT_CONFIG_JSON is not set. Run via `npx preflight`, not `playwright test`.'
+      'vantage spec: VANTAGE_CONFIG_JSON is not set. Run via `npx vantage`, not `playwright test`.'
     );
   }
   const parsed = JSON.parse(raw) as SerialisedConfig;
@@ -32,12 +32,12 @@ export function loadPreflightConfig(): ResolvedPreflightConfig {
 }
 
 export function isCi(): boolean {
-  return process.env.PREFLIGHT_CI === '1';
+  return process.env.VANTAGE_CI === '1';
 }
 
 const PRESET_VALUES: Record<
   '3g-slow' | '3g-fast' | '4g' | 'wifi',
-  PreflightNetworkPresetCustom
+  VantageNetworkPresetCustom
 > = {
   '3g-slow': { downloadKbps: 400, uploadKbps: 400, latencyMs: 400 },
   '3g-fast': { downloadKbps: 1638, uploadKbps: 768, latencyMs: 150 },
@@ -45,7 +45,7 @@ const PRESET_VALUES: Record<
   wifi: { downloadKbps: 30000, uploadKbps: 15000, latencyMs: 2 },
 };
 
-function resolvePreset(preset: PreflightNetworkPreset): PreflightNetworkPresetCustom {
+function resolvePreset(preset: VantageNetworkPreset): VantageNetworkPresetCustom {
   if (typeof preset === 'string') return PRESET_VALUES[preset];
   return preset;
 }
@@ -64,7 +64,7 @@ const warnedEngines = new Set<string>();
  */
 export async function applyNetworkPreset(
   page: Page,
-  cfg: ResolvedPreflightConfig
+  cfg: ResolvedVantageConfig
 ): Promise<void> {
   if (!cfg.networkPreset) return;
   const engine = page.context().browser()?.browserType().name() ?? 'unknown';
@@ -72,7 +72,7 @@ export async function applyNetworkPreset(
     if (!warnedEngines.has(engine)) {
       warnedEngines.add(engine);
       process.stderr.write(
-        `[preflight] networkPreset is Chromium-only; ignoring for ${engine}.\n`
+        `[vantage] networkPreset is Chromium-only; ignoring for ${engine}.\n`
       );
     }
     return;

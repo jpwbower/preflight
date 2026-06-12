@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the tool from Preflight to Vantage before launch: package name,
+  CLI binary, config convention, environment variables, generated artifacts,
+  docs, templates, CI labels, and public TypeScript identifiers now use
+  `vantage`/`Vantage`/`VANTAGE_*`.
+
 ## [0.7.0] - 2026-06-07
 
 Adds a `--gate` cadence: a trusted capture mode for an external CI
@@ -23,7 +30,7 @@ a11y is audience-toggled via the new `gateA11yGating` field.
 ### Added
 
 - **`--gate` cadence.** Runs only the new gate spec on a single
-  project and writes `.preflight/last-run/gate-manifest.json`: an
+  project and writes `.vantage/last-run/gate-manifest.json`: an
   ordered `[{ index, name, path, status, renderHealth, domSha256,
   domPath, screenshotSha256, screenshotPath, axe }]` plus a binding
   `manifestSha256`, `coverageComplete`, and `missingRoutes`. The
@@ -34,7 +41,7 @@ a11y is audience-toggled via the new `gateA11yGating` field.
 
 - **Inert-JSON-only config for `--gate`.** The gate cadence requires an
   explicit `--config <file.json>` and never auto-discovers or executes
-  a `preflight.config.ts`. The config is parsed as data, not imported as
+  a `vantage.config.ts`. The config is parsed as data, not imported as
   code — so the route set under test comes from the trusted gate driver,
   not from PR-controlled code. A missing config, a non-`.json` config,
   or unparseable JSON is rejected with exit code 2 (CONFIG_ERROR).
@@ -57,7 +64,7 @@ a11y is audience-toggled via the new `gateA11yGating` field.
 Fixes a default-cadence hang where a multi-engine multi-viewport run
 could deadlock during Playwright worker-pool shutdown (the
 `worker-N process did not exit within 300000ms after stop` warning
-followed by indefinite hang post-test-completion). preflight v0.6.0
+followed by indefinite hang post-test-completion). vantage v0.6.0
 inherited this Playwright sharp edge with no recovery — the runner
 awaited Playwright's child exit with no wall-clock bound, and the
 generated config never set `globalTimeout`. v0.6.1 adds both bounds
@@ -100,12 +107,12 @@ consumers can detect a forced kill deterministically.
 - **`runnerTimeoutMs` config field.** Override the cadence default
   with an explicit wall-clock cap in milliseconds. Applies to every
   cadence in the same run; to set per-cadence overrides, branch on
-  `process.argv` inside `preflight.config.ts` before returning. Must
+  `process.argv` inside `vantage.config.ts` before returning. Must
   be a positive finite number; rejected at config-validation time
   with a clear error otherwise.
 
   ```ts
-  // preflight.config.ts
+  // vantage.config.ts
   export default defineConfig({
     baseURL: 'http://127.0.0.1:3000',
     routes: [{ name: 'home', path: '/' }],
@@ -130,7 +137,7 @@ consumers can detect a forced kill deterministically.
 
 ### Changed
 
-- `preflight --help` now documents the wall-clock cap and the
+- `vantage --help` now documents the wall-clock cap and the
   `runnerTimeoutMs` config field under a new `WALL-CLOCK CAP`
   section. Exit code 4 (RUNTIME_ERROR) now explicitly includes the
   wall-clock-hang case in its description.
@@ -141,22 +148,22 @@ consumers can detect a forced kill deterministically.
 
 ## [0.6.0]
 
-Adds CI for preflight's own repo and clears the operator-decide
+Adds CI for vantage's own repo and clears the operator-decide
 carry-forward: the maintainer has no Mac dev box in the validation
 loop and no plans to add one, so VoiceOver moves from "deferred,
 re-ask next chunk" to "documented future work without committed
-cadence". preflight is at a stable resting state as of this tag.
+cadence". vantage is at a stable resting state as of this tag.
 
 ### Added
 
 - `.github/workflows/ci.yml` gating `main` and PRs. Builds the
   TypeScript, packs the tarball, installs into a fresh scratch dir
   next to `@playwright/test` (peerDep), installs Chromium (cached),
-  and runs `npx preflight --smoke --ci` against a static fixture
+  and runs `npx vantage --smoke --ci` against a static fixture
   under `ci/fixture/`. Matrix: `ubuntu-latest` + `windows-latest` for
   smoke; `macos-latest` runs build-only (compile-clean signal; no
   smoke without a Mac dev box). On smoke failure, uploads
-  `.preflight/last-run/` as a 7-day artefact.
+  `.vantage/last-run/` as a 7-day artefact.
 
 - `ci/fixture/index.html` — minimal deterministic page used by the
   CI smoke job. Valid markup, focusable elements, no axe violations
@@ -193,7 +200,7 @@ fallback for Scoop installs. macOS VoiceOver remains deferred to v0.6+
   the post-hydration pass cannot reach.
 
 - Default `snapshotPathTemplate` for `--visual`. Without configuration,
-  baselines now land at `${consumerProjectRoot}/__preflight_screenshots__/{arg}{ext}`
+  baselines now land at `${consumerRoot}/__vantage_screenshots__/{arg}{ext}`
   — outside `node_modules/`, ready to check in, survives `npm install`.
   Consumer-supplied `playwrightOverrides.snapshotPathTemplate` still
   wins via the spread mechanic; use an absolute path or `{testDir}`-
@@ -243,17 +250,17 @@ default `snapshotPathTemplate` deferred to v0.5+.
   `lighthouse.spec` (Lighthouse runs its own simulated throttling).
 
 - `releaseOnlyPatterns` config field — array of additional spec globs
-  appended to preflight's built-in release-only list (`nvda`,
+  appended to vantage's built-in release-only list (`nvda`,
   `lighthouse`, `html-validate`). Receives the same project-level
   `testIgnore` treatment: matched files are excluded from every
   Playwright project except `chromium__desktop-1280`. Patterns are
-  matched against files discovered under preflight's `testDir`, so
+  matched against files discovered under vantage's `testDir`, so
   consumer specs in a separate root must self-gate via
-  `process.env.PREFLIGHT_RELEASE === '1'` inside their own
+  `process.env.VANTAGE_RELEASE === '1'` inside their own
   `playwrightOverrides`.
 
 - `--links` now pre-flights `lychee --version` and warns to stderr if
-  the installed lychee is older than 0.13.0. preflight uses
+  the installed lychee is older than 0.13.0. vantage uses
   `--no-progress`, `--max-concurrency`, and `--timeout`; older builds
   may not support all three. Parse failure emits a softer warning and
   proceeds — never blocks the run.
@@ -262,7 +269,7 @@ default `snapshotPathTemplate` deferred to v0.5+.
 
 - `--release` workers:1 single-threading (NVDA foreground-app constraint).
 - NVDA `spokenPhraseLog()` empty-string behaviour on silent-driver dev boxes.
-- Lighthouse free-port TOCTOU window (fix-pin via `PREFLIGHT_LIGHTHOUSE_PORT`).
+- Lighthouse free-port TOCTOU window (fix-pin via `VANTAGE_LIGHTHOUSE_PORT`).
 - example.com validation thin — network throttling validated locally
   against scratch fixture for stronger wallclock signal.
 - Visual baselines default location, `--visual` sequential execution,
@@ -297,7 +304,7 @@ deferred to v0.4+.
   reason in the error — collisions would silently overwrite each
   other's visual baselines.
 - `auth.setup` cache writes are now atomic (`.tmp` → rename) so
-  concurrent preflight runs against the same checkout can't interleave
+  concurrent vantage runs against the same checkout can't interleave
   a half-written JSON file.
 - `auth.setup` modules without a default export get a targeted error
   naming the named exports they have and the exact code change to
@@ -313,7 +320,7 @@ deferred to v0.4+.
 - `webServer.cwd` is pre-resolved in the runner so playwright.config.ts
   no longer depends on `process.cwd()` semantics; fixes a latent v0.1
   bug where consumers with a webServer (not webServer:false) would have
-  had the server cwd silently default to `node_modules/preflight/dist/`
+  had the server cwd silently default to `node_modules/vantage/dist/`
   instead of their project root.
 
 ### Added
@@ -322,19 +329,19 @@ deferred to v0.4+.
   (default `chromium__desktop-1280`, override via `cfg.visualProject`).
   Uses Playwright's `toHaveScreenshot()` with `maxDiffPixelRatio`
   controlled by `cfg.visualThreshold` (default 0.01). Baselines are
-  consumer-managed — preflight ships none. README documents the
+  consumer-managed — vantage ships none. README documents the
   Windows ClearType escape hatch with a worked `snapshotPathTemplate`
   recipe encoding `os.release()` so each Windows build keys its own
   baseline tree.
 - `cfg.auth` field: setup module produces a Playwright `storageState`,
-  preflight caches it to `.preflight/auth/storageState.json` (override
+  vantage caches it to `.vantage/auth/storageState.json` (override
   via `auth.storageStatePath`), expires per `auth.expirySeconds`, and
   wires the path into every project's `use.storageState`. `--no-auth`
   bypasses setup for a single run.
-- `preflight teardown` subcommand: invokes `cfg.auth.teardown` (if
+- `vantage teardown` subcommand: invokes `cfg.auth.teardown` (if
   set) and deletes the cached storageState. Safety net for the v0.1
   carry-forward "storageState reuse will break tests" gotcha.
-- `PreflightRoute.lighthouseThresholds`: per-route override layered on
+- `VantageRoute.lighthouseThresholds`: per-route override layered on
   top of suite-wide thresholds, per-category. Partially addresses the
   v0.2 "Lighthouse defaults assume ship-gate" known-issue.
 - `summary.json` `cadence` discriminator now includes `'visual'`
@@ -342,7 +349,7 @@ deferred to v0.4+.
 - Six new README sections: per-route Lighthouse override, auth setup
   walkthrough, visual cadence + `--visual` capture/compare workflow,
   Windows ClearType escape hatch worked example, `--no-auth` /
-  `preflight teardown` documentation, v0.4+ roadmap (VoiceOver,
+  `vantage teardown` documentation, v0.4+ roadmap (VoiceOver,
   network throttling, consumer-registered release specs).
 
 ### Changed
@@ -353,14 +360,14 @@ deferred to v0.4+.
 
 ### Known limitations
 
-- Visual baselines default to `node_modules/preflight/dist/specs/`
+- Visual baselines default to `node_modules/vantage/dist/specs/`
   (Playwright's default sibling-of-spec location), which is destroyed
   on `npm install`. Consumers MUST set
   `playwrightOverrides.snapshotPathTemplate` to a path within their
   own repo. README documents this.
 - `auth.setup` runs in the parent runner process before the Playwright
   child is spawned — if the setup module imports heavy dependencies,
-  preflight startup latency increases.
+  vantage startup latency increases.
 - `auth.storageStatePath` and `auth.setup` are not path-sandboxed; a
   consumer-authored config can read/write outside the project root
   (their own machine, their choice). Documented as such.
@@ -389,7 +396,7 @@ work off the per-push hot path.
   in parallel across 15 projects, which would race on Windows kernel
   hooks before the skip check could fire.
 - Lychee runner streams stdout/stderr directly to
-  `.preflight/last-run/lychee-output.txt` instead of accumulating in
+  `.vantage/last-run/lychee-output.txt` instead of accumulating in
   V8 heap. Prevents OOM on link-checks of large sites.
 - `summary.json` now carries a `cadence` discriminator
   (`smoke|full|release|links`) and unified nullable shape across all
@@ -413,15 +420,15 @@ work off the per-push hot path.
   spec gates itself on platform / engine / project so a single-shot
   `--release` does not multiply across the full engine x viewport matrix.
   The NVDA spec captures NVDA's spoken phrases under
-  `.preflight/last-run/nvda-spoken-phrases.json` as a SOFT artefact —
+  `.vantage/last-run/nvda-spoken-phrases.json` as a SOFT artefact —
   pass/fail is gated on NVDA starting and walking the routes without
   throwing, not on phrase-log content (which depends on the consumer's
   speech-synth driver and produces false positives if asserted on).
 - `--links` flag: shells out to the lychee CLI for link checking,
   standalone (does not run Playwright at all). Respects a
   `lychee.toml` in the consumer project root.
-- `preflight init --ci`: additionally drops a starter
-  `.github/workflows/preflight.yml` covering all four cadences
+- `vantage init --ci`: additionally drops a starter
+  `.github/workflows/vantage.yml` covering all four cadences
   (smoke per-push, full on PR, release on tag, links nightly).
 - `lighthouseThresholds` config field with documented defaults
   (perf 75, a11y 95, best-practices 85, seo 90). Per-category override.
@@ -430,7 +437,7 @@ work off the per-push hot path.
   to the consumer's installed copy.
 - Five new README gotchas: Guidepup cold-install surface area, dev vs.
   built-artefact for `--release`, ClearType subpixel hinting, cadence
-  discipline, `.preflight/last-run/` as the canonical CI artefact path.
+  discipline, `.vantage/last-run/` as the canonical CI artefact path.
 
 ### Changed
 
@@ -447,7 +454,7 @@ work off the per-push hot path.
   not honour `playwrightOverrides` for browser launch args.
 - html-validate runs against post-hydration HTML only; SSR-specific
   markup bugs that only appear on the raw response body are missed.
-- lychee CLI is a separate install (not an npm package); preflight
+- lychee CLI is a separate install (not an npm package); vantage
   shells to it from PATH.
 
 ## [0.1.0]
@@ -456,7 +463,7 @@ Initial release. Local-only web-assurance scaffolding for any web project.
 
 ### Added
 
-- `preflight` CLI (`bin/preflight.mjs`) with documented exit codes
+- `vantage` CLI (`bin/vantage.mjs`) with documented exit codes
   (0 OK, 1 test failure, 2 config error, 3 environment error, 4 runtime).
 - `defineConfig({ ... })` helper with runtime schema validation:
   unknown top-level keys are rejected loudly so typos do not silently
@@ -477,20 +484,20 @@ Initial release. Local-only web-assurance scaffolding for any web project.
   `consoleIgnore` is concatenated, never replaces.
 - axe rule disable mechanism that requires a `reason` per rule; disabled
   rules render in a loud banner at the top of every HTML report and in
-  `.preflight/last-run/disabled-axe-rules.md`.
-- `.preflight/last-run/` stable output directory: HTML report, JSON,
+  `.vantage/last-run/disabled-axe-rules.md`.
+- `.vantage/last-run/` stable output directory: HTML report, JSON,
   JUnit (`--ci`), `summary.json`, and a convenience `index.html` (symlink
   or redirect fallback on Windows).
 - CLI flags: `--smoke`, `--list`, `--only`, `--engine`, `--headed`,
   `--debug`, `--verbose`, `--update-snapshots`, `--reporter`, `--config`,
   `--ci`, `--no-reuse`.
-- `preflight init [--force]` drops a starter `preflight.config.ts`;
+- `vantage init [--force]` drops a starter `vantage.config.ts`;
   refuses to clobber without `--force`.
-- Loads consumer `preflight.config.ts` via `tsx` (declared as a regular
+- Loads consumer `vantage.config.ts` via `tsx` (declared as a regular
   dep so consumers do not need their own TS loader).
 - README sections: install, quick start, coverage table, iOS manual
   smoke checklist, exit codes, CLI surface, 10 documented gotchas, v0.2
-  roadmap, honest "what preflight does NOT cover" list.
+  roadmap, honest "what vantage does NOT cover" list.
 
 ### Known limitations
 

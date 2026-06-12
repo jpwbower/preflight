@@ -3,7 +3,7 @@ import { AxeBuilder } from '@axe-core/playwright';
 import type { AxeResults, Result, NodeResult } from 'axe-core';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { applyNetworkPreset, loadPreflightConfig, isCi } from './_helpers.js';
+import { applyNetworkPreset, loadVantageConfig, isCi } from './_helpers.js';
 import { DEFAULT_CONSOLE_IGNORE } from '../console-ignore-defaults.js';
 import {
   sha256Hex,
@@ -15,7 +15,7 @@ import {
 /**
  * `--gate` capture spec.
  *
- * Flag-driven (PREFLIGHT_GATE=1 → testMatch routes only this spec; every
+ * Flag-driven (VANTAGE_GATE=1 → testMatch routes only this spec; every
  * other cadence excludes it). The runner collapses the matrix to a SINGLE
  * project so each route is captured exactly once. For each route this spec:
  *
@@ -25,7 +25,7 @@ import {
  *      screenshot, and hashes each (DOM hash is load-bearing; the
  *      screenshot hash is provenance only — see gate/manifest.ts).
  *   3. Runs axe and records its full violation summary.
- *   4. Writes a per-route sidecar + artefact files into PREFLIGHT_GATE_DIR.
+ *   4. Writes a per-route sidecar + artefact files into VANTAGE_GATE_DIR.
  *      The PARENT runner then assembles the ordered, deterministic
  *      gate-manifest.json from these sidecars.
  *
@@ -37,9 +37,9 @@ import {
  *     surfaces). Internal surfaces record axe findings but do not fail.
  */
 
-const cfg = loadPreflightConfig();
-const isGate = process.env.PREFLIGHT_GATE === '1';
-const gateDir = process.env.PREFLIGHT_GATE_DIR;
+const cfg = loadVantageConfig();
+const isGate = process.env.VANTAGE_GATE === '1';
+const gateDir = process.env.VANTAGE_GATE_DIR;
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'];
 
@@ -54,8 +54,8 @@ if (!isGate) {
       test(`capture ${route.name} (${route.path})`, async ({ page }) => {
         if (!gateDir) {
           throw new Error(
-            'preflight gate spec: PREFLIGHT_GATE_DIR is not set. The --gate cadence must be ' +
-              'driven by `npx preflight --gate`, which provisions the capture directory.'
+            'vantage gate spec: VANTAGE_GATE_DIR is not set. The --gate cadence must be ' +
+              'driven by `npx vantage --gate`, which provisions the capture directory.'
           );
         }
 
@@ -66,15 +66,15 @@ if (!isGate) {
         // Gate self-defends the "no suppression" invariant in the spec itself,
         // not just upstream. The CLI + runner reject consumer consoleIgnore in
         // --gate, but a DIRECT child-process invocation could still inject a
-        // suppression list via PREFLIGHT_CONFIG_JSON. So the gate render-health
-        // floor uses ONLY preflight's runner-owned DEFAULT_CONSOLE_IGNORE (the
+        // suppression list via VANTAGE_CONFIG_JSON. So the gate render-health
+        // floor uses ONLY vantage's runner-owned DEFAULT_CONSOLE_IGNORE (the
         // built-in noise filter), never the cfg-provided list.
         //
         // Hash note: this does NOT change the binding hash. On the normal path
         // the runner serialises DEFAULT_CONSOLE_IGNORE into the config this spec
         // receives anyway — it PREPENDS the default to the resolved
         // cfg.consoleIgnore (which is [] for an inert gate config) when building
-        // PREFLIGHT_CONFIG_JSON (see runner.ts consoleIgnoreCombined). That
+        // VANTAGE_CONFIG_JSON (see runner.ts consoleIgnoreCombined). That
         // merge happens AFTER the gate backstop, which sees the resolved
         // cfg.consoleIgnore = [] and therefore does NOT reject a clean config.
         // So reading the default directly here yields the same effective list.

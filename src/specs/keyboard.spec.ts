@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { loadPreflightConfig } from './_helpers.js';
+import { loadVantageConfig } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
-const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
+const cfg = loadVantageConfig();
+const isSmoke = process.env.VANTAGE_SMOKE === '1';
 
 /**
  * Pick a representative route — first one configured — and walk the focus
@@ -10,7 +10,7 @@ const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
  * is reachable AND that :focus-visible renders a non-trivial outline.
  *
  * "Walk the whole site" is intentionally not what this spec does: real
- * keyboard reviews need a human. preflight asserts the floor (focus is
+ * keyboard reviews need a human. vantage asserts the floor (focus is
  * reachable + visible), not the ceiling (logical tab order, escape from
  * traps, etc.).
  */

@@ -1,22 +1,22 @@
 /**
- * Public consumer surface for preflight.
+ * Public consumer surface for vantage.
  *
  * Consumers write:
- *   import { defineConfig } from 'preflight';
+ *   import { defineConfig } from 'vantage';
  *   export default defineConfig({ ... });
  *
- * Everything else (CLI, runner, spec internals) is loaded via `bin/preflight.mjs`
+ * Everything else (CLI, runner, spec internals) is loaded via `bin/vantage.mjs`
  * and not part of the documented import surface.
  */
-export { defineConfig, PreflightConfigError } from './defineConfig.js';
+export { defineConfig, VantageConfigError } from './defineConfig.js';
 export type {
-  PreflightConfig,
-  PreflightRoute,
-  PreflightWebServer,
-  PreflightAxeDisabled,
-  PreflightLighthouseThresholds,
-  PreflightAuth,
+  VantageConfig,
+  VantageRoute,
+  VantageWebServer,
+  VantageAxeDisabled,
+  VantageLighthouseThresholds,
+  VantageAuth,
   EngineName,
   ViewportName,
-  ResolvedPreflightConfig,
+  ResolvedVantageConfig,
 } from './types.js';

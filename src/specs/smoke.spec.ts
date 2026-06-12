@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { applyNetworkPreset, loadPreflightConfig, isCi } from './_helpers.js';
+import { applyNetworkPreset, loadVantageConfig, isCi } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
+const cfg = loadVantageConfig();
 
 test.describe('smoke', () => {
   for (const route of cfg.routes) {

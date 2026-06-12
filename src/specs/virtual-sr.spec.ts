@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { loadPreflightConfig } from './_helpers.js';
+import { loadVantageConfig } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
+const cfg = loadVantageConfig();
 const route = cfg.routes[0]!;
-const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
+const isSmoke = process.env.VANTAGE_SMOKE === '1';
 
 /**
  * Accessibility-name sanity sweep — the "virtual screen reader" check.

@@ -1,4 +1,4 @@
-# preflight CI — all on GitHub Actions, by deliberate isolation design.
+# vantage CI — all on GitHub Actions, by deliberate isolation design.
 #
 # Every per-PR build/smoke step runs the PR's own code (npm ci, build, pack,
 # install, browser download, render). Running that on the operator's box (the
@@ -11,12 +11,12 @@
 #
 # Required checks (enforced by the branch-protection ruleset, NOT here):
 #   - smoke (ubuntu) + smoke (windows) — this workflow, on every PR + main push.
-#   - ctr/cross-model-review          — the cross-model gate (posted locally by
-#                                        the gate App; reviews the diff, not CI).
+#   - external review gate            — the external review gate (posted
+#                                        outside CI; reviews the diff).
 #
 # What runs, and when:
 #   - smoke (ubuntu) / smoke (windows) — pull_request + push to main. The full
-#     pack -> scratch-install -> `preflight --smoke --ci` on both OSes. The
+#     pack -> scratch-install -> `vantage --smoke --ci` on both OSes. The
 #     `--gate` cadence is exercised by the test suite (src/specs/gate.spec.ts),
 #     so there is no separate gate-determinism step here.
 #   - build-only (macos) — version tags ONLY. macOS (10x) is the one platform
@@ -73,14 +73,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p _ci_scratch
-          cp ci/preflight.smoke.config.ts _ci_scratch/preflight.config.ts
+          cp ci/vantage.smoke.config.ts _ci_scratch/vantage.config.ts
           cp -r ci/fixture _ci_scratch/fixture
           cd _ci_scratch
           # No package-lock.json here — generate a minimal package.json so npm
           # has somewhere to put node_modules. The tarball install pulls
-          # preflight as a real dep + we add @playwright/test (peerDep) and
-          # http-server (the webServer in preflight.smoke.config.ts).
-          # `type: module` is load-bearing: preflight is ESM-only.
+          # vantage as a real dep + we add @playwright/test (peerDep) and
+          # http-server (the webServer in vantage.smoke.config.ts).
+          # `type: module` is load-bearing: vantage is ESM-only.
           npm init -y >/dev/null
           npm pkg set type=module
           npm install --no-save \
@@ -104,10 +104,10 @@ jobs:
         working-directory: _ci_scratch
         run: npx playwright install chromium
 
-      - name: Run preflight --smoke
+      - name: Run vantage --smoke
         shell: bash
         working-directory: _ci_scratch
-        run: npx preflight --smoke --ci
+        run: npx vantage --smoke --ci
 
       - name: Validate gate-inert backstops + determinism
         # Runs the adversarial gate-inert harness — proves --gate rejects every
@@ -128,8 +128,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: preflight-last-run-${{ matrix.label }}
-          path: _ci_scratch/.preflight/last-run/
+          name: vantage-last-run-${{ matrix.label }}
+          path: _ci_scratch/.vantage/last-run/
           retention-days: 7
 
   build-only:

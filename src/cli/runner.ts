@@ -6,10 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import type { ParsedArgs } from './parseArgs.js';
 import type {
-  ResolvedPreflightConfig,
+  ResolvedVantageConfig,
   EngineName,
   ViewportName,
-  PreflightAuth,
+  VantageAuth,
 } from '../types.js';
 import { ALL_VIEWPORTS } from '../viewports.js';
 import { DEFAULT_CONSOLE_IGNORE } from '../console-ignore-defaults.js';
@@ -24,15 +24,15 @@ const require_ = createRequire(import.meta.url);
 /**
  * Resolve the Playwright CLI entry. We resolve from the consumer's CWD so
  * that the consumer's installed @playwright/test (declared as a peerDep) is
- * used, not preflight's own copy.
+ * used, not vantage's own copy.
  */
 function resolvePlaywrightCli(consumerCwd: string): string {
   const fromConsumer = createRequire(path.join(consumerCwd, 'package.json'));
   try {
     return fromConsumer.resolve('@playwright/test/cli');
   } catch {
-    // Fall back to preflight's bundled dev dep so smoke-runs in CI of the
-    // preflight repo itself still work.
+    // Fall back to vantage's bundled dev dep so smoke-runs in CI of the
+    // vantage repo itself still work.
     try {
       return require_.resolve('@playwright/test/cli');
     } catch {
@@ -53,9 +53,9 @@ export class EnvError extends Error {
 
 export interface RunOptions {
   args: ParsedArgs;
-  rawConfig: ResolvedPreflightConfig;
+  rawConfig: ResolvedVantageConfig;
   consumerCwd: string;
-  preflightVersion: string;
+  vantageVersion: string;
 }
 
 export interface RunResult {
@@ -78,7 +78,7 @@ export interface RunResult {
  *
  * `cfg.runnerTimeoutMs` overrides this for ALL cadences in the same
  * run. Consumers who want per-cadence overrides branch on
- * `process.argv` in their preflight.config.ts.
+ * `process.argv` in their vantage.config.ts.
  */
 function defaultRunnerTimeoutMs(args: ParsedArgs): number {
   if (args.smoke) return 5 * 60 * 1000;
@@ -109,7 +109,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     const disallowed = gateDisallowedResolvedKeys(cfg);
     if (disallowed.length > 0) {
       process.stderr.write(
-        `preflight --gate: resolved config includes disallowed gate key(s): ${disallowed.join(', ')}. ` +
+        `vantage --gate: resolved config includes disallowed gate key(s): ${disallowed.join(', ')}. ` +
           'Gate config must be inert data; remove executable hooks, Playwright overrides, and finding suppressions.\n'
       );
       return { exitCode: 2 };
@@ -126,7 +126,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     (rawConfig.engines.length > 1 || rawConfig.viewports.length > 1)
   ) {
     process.stderr.write(
-      `[preflight] gate: config resolved to ${rawConfig.engines.length} engine(s) × ` +
+      `[vantage] gate: config resolved to ${rawConfig.engines.length} engine(s) × ` +
         `${rawConfig.viewports.length} viewport(s); rendering only ${cfg.engines[0]}__${cfg.viewports[0]}. ` +
         'Set engines/viewports to one each in the gate config to make the rendered project explicit.\n'
     );
@@ -135,7 +135,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const globalTimeoutMs = cfg.runnerTimeoutMs ?? defaultRunnerTimeoutMs(args);
   const killAfterMs = globalTimeoutMs + RUNNER_KILL_GRACE_MS;
 
-  const lastRunDir = path.join(consumerCwd, '.preflight', 'last-run');
+  const lastRunDir = path.join(consumerCwd, '.vantage', 'last-run');
   await rm(lastRunDir, { recursive: true, force: true });
   await mkdir(lastRunDir, { recursive: true });
 
@@ -157,7 +157,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
       storageStatePath = await ensureAuthStorageState(cfg.auth, consumerCwd, args.verbose);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[preflight] auth setup failed: ${msg}\n`);
+      process.stderr.write(`[vantage] auth setup failed: ${msg}\n`);
       return { exitCode: 4 };
     }
   }
@@ -173,7 +173,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   const consoleIgnoreCombined = [...DEFAULT_CONSOLE_IGNORE, ...cfg.consoleIgnore];
 
   // Pre-resolve webServer.cwd so playwright.config.ts never depends on
-  // process.cwd() semantics — the dist directory of preflight is the
+  // process.cwd() semantics — the dist directory of vantage is the
   // wrong cwd for any webServer.command with a relative path, and the
   // bug only surfaces with consumer-managed servers (v0.1/v0.2 hid it
   // by using webServer:false). Resolve once, in the parent runner.
@@ -198,28 +198,28 @@ export async function run(opts: RunOptions): Promise<RunResult> {
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    PREFLIGHT_CONFIG_JSON: JSON.stringify(serialised),
-    PREFLIGHT_HTML_REPORT_DIR: htmlReportDir,
-    PREFLIGHT_JUNIT_FILE: junitFile,
-    PREFLIGHT_JSON_FILE: jsonFile,
-    PREFLIGHT_TEST_RESULTS_DIR: testResultsDir,
-    PREFLIGHT_CI: args.ci ? '1' : '0',
-    PREFLIGHT_NO_REUSE: args.noReuse ? '1' : '0',
-    PREFLIGHT_VERBOSE: args.verbose ? '1' : '0',
-    PREFLIGHT_SMOKE: args.smoke ? '1' : '0',
-    PREFLIGHT_RELEASE: args.release ? '1' : '0',
-    PREFLIGHT_VISUAL: args.visual ? '1' : '0',
-    PREFLIGHT_GATE: args.gate ? '1' : '0',
-    PREFLIGHT_GATE_DIR: gateDir,
+    VANTAGE_CONFIG_JSON: JSON.stringify(serialised),
+    VANTAGE_HTML_REPORT_DIR: htmlReportDir,
+    VANTAGE_JUNIT_FILE: junitFile,
+    VANTAGE_JSON_FILE: jsonFile,
+    VANTAGE_TEST_RESULTS_DIR: testResultsDir,
+    VANTAGE_CI: args.ci ? '1' : '0',
+    VANTAGE_NO_REUSE: args.noReuse ? '1' : '0',
+    VANTAGE_VERBOSE: args.verbose ? '1' : '0',
+    VANTAGE_SMOKE: args.smoke ? '1' : '0',
+    VANTAGE_RELEASE: args.release ? '1' : '0',
+    VANTAGE_VISUAL: args.visual ? '1' : '0',
+    VANTAGE_GATE: args.gate ? '1' : '0',
+    VANTAGE_GATE_DIR: gateDir,
     // Wall-clock cap forwarded to playwright.config.ts → `globalTimeout`.
     // The parent runner ALSO enforces this via a SIGKILL after a 90 s
     // grace window — see runPlaywright() and the v0.6.1 CHANGELOG entry.
-    PREFLIGHT_GLOBAL_TIMEOUT_MS: String(globalTimeoutMs),
-    // PREFLIGHT_VERSION is intentionally NOT forwarded — writeSummary in the
+    VANTAGE_GLOBAL_TIMEOUT_MS: String(globalTimeoutMs),
+    // VANTAGE_VERSION is intentionally NOT forwarded — writeSummary in the
     // parent process takes the version directly, so the child does not need it.
   };
   if (args.debug) env.PWDEBUG = '1';
-  if (args.reporter) env.PREFLIGHT_REPORTER = args.reporter;
+  if (args.reporter) env.VANTAGE_REPORTER = args.reporter;
 
   const playwrightCli = resolvePlaywrightCli(consumerCwd);
   const pwConfigPath = path.join(__dirname, '..', 'playwright.config.js');
@@ -229,7 +229,7 @@ export async function run(opts: RunOptions): Promise<RunResult> {
   if (args.updateSnapshots) cliArgs.push('--update-snapshots');
 
   if (args.verbose) {
-    process.stderr.write(`[preflight] launching: node ${cliArgs.map((a) => quote(a)).join(' ')}\n`);
+    process.stderr.write(`[vantage] launching: node ${cliArgs.map((a) => quote(a)).join(' ')}\n`);
   }
 
   const { exitCode, hangDetected } = await runPlaywright(
@@ -262,14 +262,14 @@ export async function run(opts: RunOptions): Promise<RunResult> {
       lastRunDir,
       gateDir,
       cfg,
-      preflightVersion: opts.preflightVersion,
+      vantageVersion: opts.vantageVersion,
       project,
-      surface: process.env.PREFLIGHT_GATE_SURFACE,
+      surface: process.env.VANTAGE_GATE_SURFACE,
       verbose: args.verbose,
     });
     if (!gateOutcome.coverageComplete && finalExitCode === 0) {
       process.stderr.write(
-        `[preflight] gate: coverage incomplete — no capture for route index(es) ` +
+        `[vantage] gate: coverage incomplete — no capture for route index(es) ` +
           `${gateOutcome.missingRoutes.join(', ')}. Failing the gate (exit 1).\n`
       );
       finalExitCode = 1;
@@ -280,13 +280,13 @@ export async function run(opts: RunOptions): Promise<RunResult> {
     lastRunDir,
     cfg,
     finalExitCode,
-    opts.preflightVersion,
+    opts.vantageVersion,
     totals,
     cadence,
     hangDetected ? { hangDetected: true, globalTimeoutMs, killAfterMs } : undefined
   );
 
-  // Convenience symlink: .preflight/last-run/index.html → html-report/index.html.
+  // Convenience symlink: .vantage/last-run/index.html → html-report/index.html.
   // Symlink creation on Windows requires elevation or Developer Mode; if it
   // fails we fall back to a tiny redirect HTML so the path still resolves.
   await linkOrRedirect(lastRunDir, htmlReportDir);
@@ -295,9 +295,9 @@ export async function run(opts: RunOptions): Promise<RunResult> {
 }
 
 function applyRunFlagsToConfig(
-  cfg: ResolvedPreflightConfig,
+  cfg: ResolvedVantageConfig,
   args: ParsedArgs
-): ResolvedPreflightConfig {
+): ResolvedVantageConfig {
   let engines: EngineName[] = cfg.engines;
   let viewports: ViewportName[] = cfg.viewports;
 
@@ -344,9 +344,9 @@ function applyRunFlagsToConfig(
  * DEFAULT_CONSOLE_IGNORE for the child (that merge happens later — see
  * `consoleIgnoreCombined`). So for a clean inert gate config `cfg.consoleIgnore`
  * is [] here and is NOT rejected; this check only fires on a CONSUMER-supplied
- * consoleIgnore/axeDisabled (a suppression), never on preflight's own default.
+ * consoleIgnore/axeDisabled (a suppression), never on vantage's own default.
  */
-function gateDisallowedResolvedKeys(cfg: ResolvedPreflightConfig): string[] {
+function gateDisallowedResolvedKeys(cfg: ResolvedVantageConfig): string[] {
   const disallowed: string[] = [];
   if (cfg.webServer !== false) disallowed.push('webServer.command');
   if (cfg.auth) disallowed.push('auth');
@@ -438,7 +438,7 @@ function runPlaywright(
       hangDetected = true;
       const minutes = (killAfterMs / 60_000).toFixed(1);
       process.stderr.write(
-        `[preflight] Playwright did not exit within ${minutes} min wall-clock cap. ` +
+        `[vantage] Playwright did not exit within ${minutes} min wall-clock cap. ` +
           'Sending SIGTERM. If the worker pool is deadlocked (a known issue on multi-engine ' +
           'Windows runs), SIGKILL follows in 10 s.\n'
       );
@@ -446,20 +446,20 @@ function runPlaywright(
         child.kill('SIGTERM');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[preflight] SIGTERM failed: ${msg}\n`);
+        process.stderr.write(`[vantage] SIGTERM failed: ${msg}\n`);
       }
       sigkillTimer = setTimeout(() => {
         if (settled) return;
         process.stderr.write(
-          '[preflight] Playwright did not exit 10 s after SIGTERM. Sending SIGKILL. ' +
+          '[vantage] Playwright did not exit 10 s after SIGTERM. Sending SIGKILL. ' +
             'summary.json will be written with hangDetected:true and exit code 4 ' +
-            '(RUNTIME_ERROR). Inspect .preflight/last-run/ for partial results.\n'
+            '(RUNTIME_ERROR). Inspect .vantage/last-run/ for partial results.\n'
         );
         try {
           child.kill('SIGKILL');
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          process.stderr.write(`[preflight] SIGKILL failed: ${msg}\n`);
+          process.stderr.write(`[vantage] SIGKILL failed: ${msg}\n`);
         }
         // Belt-and-braces: even SIGKILL can fail to reach a child whose
         // pid was reused or which has detached. Resolve after a further
@@ -467,7 +467,7 @@ function runPlaywright(
         sigtermTimer = setTimeout(() => {
           if (settled) return;
           process.stderr.write(
-            '[preflight] child did not exit 5 s after SIGKILL. Resolving anyway; ' +
+            '[vantage] child did not exit 5 s after SIGKILL. Resolving anyway; ' +
               'the child process may be orphaned — check process inventory.\n'
           );
           settle({ exitCode: 4, hangDetected: true });
@@ -478,7 +478,7 @@ function runPlaywright(
     if (verbose) {
       const minutes = (killAfterMs / 60_000).toFixed(1);
       process.stderr.write(
-        `[preflight] wall-clock cap on Playwright child: ${minutes} min (SIGKILL after grace).\n`
+        `[vantage] wall-clock cap on Playwright child: ${minutes} min (SIGKILL after grace).\n`
       );
     }
 
@@ -490,14 +490,14 @@ function runPlaywright(
         return;
       }
       if (signal) {
-        process.stderr.write(`[preflight] Playwright terminated by signal ${signal}\n`);
+        process.stderr.write(`[vantage] Playwright terminated by signal ${signal}\n`);
         settle({ exitCode: 1, hangDetected: false });
       } else {
         settle({ exitCode: code ?? 1, hangDetected: false });
       }
     });
     child.on('error', (err) => {
-      process.stderr.write(`[preflight] failed to spawn Playwright: ${err.message}\n`);
+      process.stderr.write(`[vantage] failed to spawn Playwright: ${err.message}\n`);
       settle({ exitCode: 4, hangDetected: false });
     });
   });
@@ -527,7 +527,7 @@ interface SummaryJson {
   };
   disabledAxeRules: { rule: string; reason: string }[] | null;
   /**
-   * Set iff preflight's wall-clock cap fired before Playwright exited
+   * Set iff vantage's wall-clock cap fired before Playwright exited
    * on its own — i.e. the child was SIGKILLed by the parent runner.
    * Omitted (not `false`) on healthy runs so backwards-compatible CI
    * consumers that key on a missing field see the historical shape.
@@ -569,15 +569,15 @@ async function tallyResults(jsonFile: string): Promise<NonNullable<SummaryJson['
 
 async function writeSummary(
   outDir: string,
-  cfg: ResolvedPreflightConfig,
+  cfg: ResolvedVantageConfig,
   exitCode: number,
-  preflightVersion: string,
+  vantageVersion: string,
   totals: NonNullable<SummaryJson['totals']>,
   cadence: SummaryJson['cadence'],
   hang?: HangInfo
 ): Promise<void> {
   const summary: SummaryJson = {
-    version: preflightVersion,
+    version: vantageVersion,
     finishedAt: new Date().toISOString(),
     cadence,
     exitCode,
@@ -599,8 +599,8 @@ async function writeSummary(
 interface GateManifestOptions {
   lastRunDir: string;
   gateDir: string;
-  cfg: ResolvedPreflightConfig;
-  preflightVersion: string;
+  cfg: ResolvedVantageConfig;
+  vantageVersion: string;
   project: string;
   surface: string | undefined;
   verbose: boolean;
@@ -634,7 +634,7 @@ async function assembleGateManifest(opts: GateManifestOptions): Promise<GateMani
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // A corrupt sidecar leaves this slot missing → coverage incomplete → fail-closed.
-      process.stderr.write(`[preflight] gate: failed to read sidecar ${sidecar}: ${msg}\n`);
+      process.stderr.write(`[vantage] gate: failed to read sidecar ${sidecar}: ${msg}\n`);
       continue;
     }
     // Route IDENTITY is runner-authoritative, never trusted from sidecar content:
@@ -647,7 +647,7 @@ async function assembleGateManifest(opts: GateManifestOptions): Promise<GateMani
     // the identity (index / name / path) is re-stamped from cfg.routes.
     if (parsed.index !== i || parsed.name !== route.name || parsed.path !== route.path) {
       process.stderr.write(
-        `[preflight] gate: sidecar ${sidecar} identity mismatch ` +
+        `[vantage] gate: sidecar ${sidecar} identity mismatch ` +
           `(claimed index=${String(parsed.index)} name=${String(parsed.name)} path=${String(parsed.path)}; ` +
           `expected index=${i} name=${route.name} path=${route.path}); rejecting (fail-closed).\n`
       );
@@ -658,7 +658,7 @@ async function assembleGateManifest(opts: GateManifestOptions): Promise<GateMani
 
   const manifest = assembleManifest(
     {
-      preflightVersion: opts.preflightVersion,
+      vantageVersion: opts.vantageVersion,
       finishedAt: new Date().toISOString(),
       surface: opts.surface,
       project: opts.project,
@@ -672,7 +672,7 @@ async function assembleGateManifest(opts: GateManifestOptions): Promise<GateMani
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
   if (opts.verbose) {
     process.stderr.write(
-      `[preflight] gate: wrote ${manifestPath} ` +
+      `[vantage] gate: wrote ${manifestPath} ` +
         `(routes ${manifest.routes.length}/${manifest.routeCount}, ` +
         `manifestSha256=${manifest.manifestSha256})\n`
     );
@@ -693,23 +693,23 @@ async function linkOrRedirect(lastRunDir: string, htmlReportDir: string): Promis
   try {
     if (existsSync(target)) await rm(target);
     // Use the relative path as the symlink target so the link survives if
-    // the user copies or moves .preflight/last-run/ wholesale.
+    // the user copies or moves .vantage/last-run/ wholesale.
     await symlink(rel, target, 'file');
   } catch {
     // Windows non-elevated case: write a redirect stub.
-    const redirect = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${rel}"><title>preflight last-run report</title><p>Opening <a href="${rel}">${rel}</a> &hellip;</p>`;
+    const redirect = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${rel}"><title>vantage last-run report</title><p>Opening <a href="${rel}">${rel}</a> &hellip;</p>`;
     await writeFile(target, redirect, 'utf8');
   }
 }
 
 export interface TeardownOptions {
-  rawConfig: ResolvedPreflightConfig;
+  rawConfig: ResolvedVantageConfig;
   consumerCwd: string;
   verbose: boolean;
 }
 
 /**
- * `preflight teardown` subcommand: invokes cfg.auth.teardown if set,
+ * `vantage teardown` subcommand: invokes cfg.auth.teardown if set,
  * then deletes the cached storageState. Idempotent — missing
  * storageState file is not an error. Useful as a safety net after a
  * test run leaves stale session cookies behind, or as a manual step
@@ -719,7 +719,7 @@ export async function runTeardown(opts: TeardownOptions): Promise<number> {
   const { rawConfig: cfg, consumerCwd, verbose } = opts;
   if (!cfg.auth) {
     process.stderr.write(
-      'preflight teardown: no `auth` block configured. Nothing to tear down.\n'
+      'vantage teardown: no `auth` block configured. Nothing to tear down.\n'
     );
     return 0;
   }
@@ -730,38 +730,38 @@ export async function runTeardown(opts: TeardownOptions): Promise<number> {
       : path.join(consumerCwd, cfg.auth.teardown);
     if (!existsSync(teardownPath)) {
       process.stderr.write(
-        `preflight teardown: auth.teardown module not found at ${teardownPath}\n`
+        `vantage teardown: auth.teardown module not found at ${teardownPath}\n`
       );
       return 2;
     }
     if (verbose) {
-      process.stderr.write(`[preflight] invoking auth teardown ${teardownPath}\n`);
+      process.stderr.write(`[vantage] invoking auth teardown ${teardownPath}\n`);
     }
     try {
       const fn = await importDefaultFn(teardownPath, consumerCwd);
       await fn();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[preflight] auth teardown threw: ${msg}\n`);
+      process.stderr.write(`[vantage] auth teardown threw: ${msg}\n`);
       return 4;
     }
   }
   if (existsSync(storageStatePath)) {
     await unlink(storageStatePath);
     if (verbose) {
-      process.stderr.write(`[preflight] removed cached storageState ${storageStatePath}\n`);
+      process.stderr.write(`[vantage] removed cached storageState ${storageStatePath}\n`);
     }
   }
   return 0;
 }
 
-function resolveStorageStatePath(auth: PreflightAuth, consumerCwd: string): string {
-  const rel = auth.storageStatePath ?? path.join('.preflight', 'auth', 'storageState.json');
+function resolveStorageStatePath(auth: VantageAuth, consumerCwd: string): string {
+  const rel = auth.storageStatePath ?? path.join('.vantage', 'auth', 'storageState.json');
   return path.isAbsolute(rel) ? rel : path.join(consumerCwd, rel);
 }
 
 async function ensureAuthStorageState(
-  auth: PreflightAuth,
+  auth: VantageAuth,
   consumerCwd: string,
   verbose: boolean
 ): Promise<string> {
@@ -776,7 +776,7 @@ async function ensureAuthStorageState(
         needRefresh = true;
         if (verbose) {
           process.stderr.write(
-            `[preflight] cached storageState is ${Math.round(ageSec)}s old (> ${auth.expirySeconds}s expiry); refreshing\n`
+            `[vantage] cached storageState is ${Math.round(ageSec)}s old (> ${auth.expirySeconds}s expiry); refreshing\n`
           );
         }
       }
@@ -787,7 +787,7 @@ async function ensureAuthStorageState(
 
   if (!needRefresh) {
     if (verbose) {
-      process.stderr.write(`[preflight] reusing cached storageState ${storageStatePath}\n`);
+      process.stderr.write(`[vantage] reusing cached storageState ${storageStatePath}\n`);
     }
     return storageStatePath;
   }
@@ -802,7 +802,7 @@ async function ensureAuthStorageState(
     );
   }
   if (verbose) {
-    process.stderr.write(`[preflight] running auth setup ${setupPath}\n`);
+    process.stderr.write(`[vantage] running auth setup ${setupPath}\n`);
   }
   const setupFn = await importDefaultFn(setupPath, consumerCwd);
   const state = await setupFn();
@@ -824,7 +824,7 @@ async function ensureAuthStorageState(
     );
   }
   // Write to a sibling .tmp file then atomic rename so concurrent
-  // preflight runs in the same checkout cannot interleave a
+  // vantage runs in the same checkout cannot interleave a
   // half-written JSON that a Playwright worker would later fail to
   // parse when constructing a context with storageState.
   const tmpPath = `${storageStatePath}.tmp`;
@@ -890,7 +890,7 @@ async function dynamicImportPreferringConsumer(
 }
 
 export interface ListOptions {
-  rawConfig: ResolvedPreflightConfig;
+  rawConfig: ResolvedVantageConfig;
   args: ParsedArgs;
 }
 
@@ -909,7 +909,7 @@ export function renderMatrix(opts: ListOptions): string {
         ? [...baseSpecs, ...releaseSpecs]
         : baseSpecs;
   const rows: string[] = [];
-  rows.push('preflight matrix:');
+  rows.push('vantage matrix:');
   rows.push(`  baseURL:    ${cfg.baseURL}`);
   rows.push(`  routes:     ${cfg.routes.map((r) => r.name).join(', ')}`);
   rows.push(`  engines:    ${cfg.engines.join(', ')}`);

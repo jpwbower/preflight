@@ -46,7 +46,7 @@
 //
 // This script does NOT exercise the Playwright-side `globalTimeout`
 // path — that's covered by the unit-level assertion that
-// `PREFLIGHT_GLOBAL_TIMEOUT_MS` is forwarded into the spawned env
+// `VANTAGE_GLOBAL_TIMEOUT_MS` is forwarded into the spawned env
 // (see also `scripts/check-global-timeout-env.mjs` if you add one).
 // The SIGKILL belt-and-braces path is the harder thing to test
 // end-to-end and that's what this script covers.

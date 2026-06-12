@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { loadPreflightConfig } from './_helpers.js';
+import { loadVantageConfig } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
-const isVisual = process.env.PREFLIGHT_VISUAL === '1';
+const cfg = loadVantageConfig();
+const isVisual = process.env.VANTAGE_VISUAL === '1';
 
 /**
  * Visual regression via Playwright's `toHaveScreenshot()`.
@@ -10,7 +10,7 @@ const isVisual = process.env.PREFLIGHT_VISUAL === '1';
  * Gated on the `--visual` flag (top-level testMatch in playwright.config.ts
  * routes only this spec when the flag is set, and excludes it otherwise),
  * not on `--release`. Why separate cadence: baselines are consumer-managed
- * artefacts that live in the consumer's repo, not preflight's — and the
+ * artefacts that live in the consumer's repo, not vantage's — and the
  * Windows ClearType subpixel-hinting flake means baselines drift across
  * minor Windows updates regardless of code changes. See README for the
  * `snapshotPathTemplate` escape hatch.
@@ -21,8 +21,8 @@ const isVisual = process.env.PREFLIGHT_VISUAL === '1';
  * `chromium__desktop-1280`) and run visual there. Configure
  * `visualProject` if you need a different one.
  *
- * preflight ships NO baselines. First-time consumers run
- * `npx preflight --visual --update-snapshots` to capture, then check the
+ * vantage ships NO baselines. First-time consumers run
+ * `npx vantage --visual --update-snapshots` to capture, then check the
  * resulting `__screenshots__/` directory in.
  */
 

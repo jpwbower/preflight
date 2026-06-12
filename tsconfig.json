@@ -17,5 +17,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test-results", "playwright-report", ".preflight"]
+  "exclude": ["node_modules", "dist", "test-results", "playwright-report", ".vantage"]
 }

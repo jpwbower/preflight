@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// preflight CLI entry. Plain JS so it runs without a TypeScript loader.
+// vantage CLI entry. Plain JS so it runs without a TypeScript loader.
 // All non-trivial logic lives in dist/cli/*.js (compiled from src/cli/*.ts).
 
 import path from 'node:path';
@@ -32,7 +32,7 @@ function readSelfVersion() {
 
 async function dynamicImportPreferringConsumer(specifier, consumerCwd) {
   // Try the consumer's copy first (lets them pin tsx if they want), then
-  // fall back to preflight's bundled copy. Nested `node_modules/preflight/
+  // fall back to vantage's bundled copy. Nested `node_modules/vantage/
   // node_modules/tsx` won't be found by walking up from the consumer dir,
   // so the fallback is what real installs actually use.
   try {
@@ -47,15 +47,15 @@ async function dynamicImportPreferringConsumer(specifier, consumerCwd) {
 }
 
 /**
- * Locate preflight.config.{ts,mts,js,mjs} in the consumer directory or any
+ * Locate vantage.config.{ts,mts,js,mjs} in the consumer directory or any
  * ancestor. Mirrors how Playwright / Vitest discover their config files.
  */
 function discoverConfigPath(consumerCwd) {
   const candidates = [
-    'preflight.config.ts',
-    'preflight.config.mts',
-    'preflight.config.js',
-    'preflight.config.mjs',
+    'vantage.config.ts',
+    'vantage.config.mts',
+    'vantage.config.js',
+    'vantage.config.mjs',
   ];
   let dir = consumerCwd;
   while (true) {
@@ -96,7 +96,7 @@ function realPath(p) {
 // marker). Returns the enclosing repo root, or null if startDir is not inside
 // any git checkout. Unlike findProjectBoundary this is anchored on the path
 // itself (not on cwd), so it can tell whether a --config FILE sits inside a
-// checkout regardless of where preflight was launched from.
+// checkout regardless of where vantage was launched from.
 function findEnclosingRepo(startDir) {
   let dir = path.resolve(startDir);
   while (true) {
@@ -110,7 +110,7 @@ function findEnclosingRepo(startDir) {
 async function loadConsumerConfig(configPath, consumerCwd) {
   const ext = path.extname(configPath).toLowerCase();
   if (ext === '.ts' || ext === '.mts') {
-    // Use the consumer's installed `tsx` (preflight declares it as a regular
+    // Use the consumer's installed `tsx` (vantage declares it as a regular
     // dep so it is always available).
     try {
       const tsx = await dynamicImportPreferringConsumer('tsx/esm/api', consumerCwd);
@@ -126,12 +126,12 @@ async function loadConsumerConfig(configPath, consumerCwd) {
       // Re-wrapping them as "failed to load TypeScript config ... Make sure
       // tsx is installed" is misleading — tsx is fine.
       const msg = err && err.message ? err.message : String(err);
-      if (err && (err.name === 'PreflightConfigError' || msg.startsWith('preflight config error:'))) {
+      if (err && (err.name === 'VantageConfigError' || msg.startsWith('vantage config error:'))) {
         throw err;
       }
       throw new ConfigError(
         `failed to load TypeScript config ${configPath}: ${msg}\n` +
-          'Make sure tsx is installed (preflight pulls it in automatically — try `npm i`).'
+          'Make sure tsx is installed (vantage pulls it in automatically — try `npm i`).'
       );
     }
   }
@@ -154,62 +154,62 @@ function printHelpAndExit() {
     process.stdout.write(helpText());
   } catch {
     process.stdout.write(
-      'preflight CLI — dist/ not built. Run `npm install` in this package, then `npm run prepare`.\n'
+      'vantage CLI — dist/ not built. Run `npm install` in this package, then `npm run prepare`.\n'
     );
   }
   process.exit(EXIT.OK);
 }
 
 async function cmdInit(parsed, consumerCwd) {
-  const tplSrc = path.join(__dirname, '..', 'templates', 'preflight.config.ts.tpl');
-  const dest = path.join(consumerCwd, 'preflight.config.ts');
+  const tplSrc = path.join(__dirname, '..', 'templates', 'vantage.config.ts.tpl');
+  const dest = path.join(consumerCwd, 'vantage.config.ts');
   if (existsSync(dest) && !parsed.force) {
     process.stderr.write(
-      `preflight init: ${dest} already exists. Re-run with --force to overwrite.\n`
+      `vantage init: ${dest} already exists. Re-run with --force to overwrite.\n`
     );
     return EXIT.CONFIG_ERROR;
   }
   if (!existsSync(tplSrc)) {
     process.stderr.write(
-      `preflight init: template missing at ${tplSrc}. Reinstall preflight.\n`
+      `vantage init: template missing at ${tplSrc}. Reinstall vantage.\n`
     );
     return EXIT.RUNTIME_ERROR;
   }
   await copyFile(tplSrc, dest);
-  process.stdout.write(`preflight init: wrote ${dest}\n`);
+  process.stdout.write(`vantage init: wrote ${dest}\n`);
 
   if (parsed.ci) {
-    const ghaSrc = path.join(__dirname, '..', 'templates', 'preflight.gha.yml.tpl');
+    const ghaSrc = path.join(__dirname, '..', 'templates', 'vantage.gha.yml.tpl');
     const ghaDestDir = path.join(consumerCwd, '.github', 'workflows');
-    const ghaDest = path.join(ghaDestDir, 'preflight.yml');
+    const ghaDest = path.join(ghaDestDir, 'vantage.yml');
     if (existsSync(ghaDest) && !parsed.force) {
       process.stderr.write(
-        `preflight init --ci: ${ghaDest} already exists. Re-run with --force to overwrite.\n`
+        `vantage init --ci: ${ghaDest} already exists. Re-run with --force to overwrite.\n`
       );
       return EXIT.CONFIG_ERROR;
     }
     if (!existsSync(ghaSrc)) {
       process.stderr.write(
-        `preflight init --ci: GHA template missing at ${ghaSrc}. Reinstall preflight.\n`
+        `vantage init --ci: GHA template missing at ${ghaSrc}. Reinstall vantage.\n`
       );
       return EXIT.RUNTIME_ERROR;
     }
     await mkdir(ghaDestDir, { recursive: true });
     await copyFile(ghaSrc, ghaDest);
-    process.stdout.write(`preflight init: wrote ${ghaDest}\n`);
+    process.stdout.write(`vantage init: wrote ${ghaDest}\n`);
   }
 
-  process.stdout.write('Edit baseURL, routes, and webServer for your project, then run `npx preflight --smoke`.\n');
+  process.stdout.write('Edit baseURL, routes, and webServer for your project, then run `npx vantage --smoke`.\n');
   return EXIT.OK;
 }
 
-async function cmdLinks(parsed, consumerCwd, resolvedConfig, preflightVersion) {
+async function cmdLinks(parsed, consumerCwd, resolvedConfig, vantageVersion) {
   const mod = require_('../dist/links/runLychee.js');
   const result = await mod.runLychee({
     consumerCwd,
     config: resolvedConfig,
     verbose: parsed.verbose,
-    preflightVersion,
+    vantageVersion,
   });
   return result.exitCode;
 }
@@ -226,14 +226,14 @@ async function main() {
     return EXIT.OK;
   }
   if (rawArgs.includes('--version') || rawArgs.includes('-V')) {
-    process.stdout.write(`preflight ${version}\n`);
+    process.stdout.write(`vantage ${version}\n`);
     return EXIT.OK;
   }
 
   const distAvailable = existsSync(path.join(__dirname, '..', 'dist', 'cli', 'parseArgs.js'));
   if (!distAvailable) {
     process.stderr.write(
-      'preflight: dist/ is missing. If you installed from git, run `npm install` in the preflight checkout, ' +
+      'vantage: dist/ is missing. If you installed from git, run `npm install` in the vantage checkout, ' +
         'or reinstall the dependency so the prepare script runs.\n'
     );
     return EXIT.ENV_ERROR;
@@ -243,14 +243,14 @@ async function main() {
   const parsed = parseArgs(rawArgs);
   if (parsed.unknown.length > 0) {
     process.stderr.write(
-      `preflight: unknown argument(s): ${parsed.unknown.join(' ')}\n` +
-        'Run `preflight --help` for usage.\n'
+      `vantage: unknown argument(s): ${parsed.unknown.join(' ')}\n` +
+        'Run `vantage --help` for usage.\n'
     );
     return EXIT.CONFIG_ERROR;
   }
   const conflict = detectFlagConflict(parsed);
   if (conflict) {
-    process.stderr.write(`preflight: ${conflict}\n`);
+    process.stderr.write(`vantage: ${conflict}\n`);
     return EXIT.CONFIG_ERROR;
   }
 
@@ -262,12 +262,12 @@ async function main() {
   let configPath = parsed.configPath;
 
   // --gate is a TRUSTED cadence: it must NEVER execute a PR-controlled
-  // preflight.config.ts. It requires an explicit --config pointing at an
+  // vantage.config.ts. It requires an explicit --config pointing at an
   // INERT .json file (data, not code), parsed directly and then checked
   // against a gate-only allowlist before normal config resolution.
   //
   // CONTRACT: the trusted gate driver must stage this JSON outside the PR
-  // checkout and pass that absolute path. preflight enforces the mechanical
+  // checkout and pass that absolute path. vantage enforces the mechanical
   // footguns it can see (absolute .json, outside the realpathed project
   // boundary, inert-key allowlist, no config-provided server command). It
   // cannot prove who wrote a sibling temp file, so config provenance remains
@@ -275,8 +275,8 @@ async function main() {
   if (parsed.gate) {
     if (!configPath) {
       process.stderr.write(
-        'preflight --gate: requires an explicit --config <file.json>. The gate cadence never\n' +
-          'auto-discovers or executes a preflight.config.ts — it loads an inert JSON config so the\n' +
+        'vantage --gate: requires an explicit --config <file.json>. The gate cadence never\n' +
+          'auto-discovers or executes a vantage.config.ts — it loads an inert JSON config so the\n' +
           'route set under test comes from the trusted gate driver, not from PR-controlled code.\n'
       );
       return EXIT.CONFIG_ERROR;
@@ -288,7 +288,7 @@ async function main() {
     // path — the relative form is exactly the footgun the contract warns about.
     if (!path.isAbsolute(configPath)) {
       process.stderr.write(
-        `preflight --gate: --config must be an ABSOLUTE path (got "${configPath}"). The gate\n` +
+        `vantage --gate: --config must be an ABSOLUTE path (got "${configPath}"). The gate\n` +
           'cadence refuses to resolve a relative path against the current directory — a gate run\n' +
           'launched from inside the PR checkout would then load a PR-controlled config. The trusted\n' +
           'gate driver must pass the absolute path of the config it staged.\n'
@@ -297,22 +297,22 @@ async function main() {
     }
     if (path.extname(configPath).toLowerCase() !== '.json') {
       process.stderr.write(
-        `preflight --gate: --config must be a .json file (got ${configPath}). The gate cadence\n` +
+        `vantage --gate: --config must be a .json file (got ${configPath}). The gate cadence\n` +
           'refuses to execute a TypeScript/JavaScript config — supply an inert JSON config instead.\n'
       );
       return EXIT.CONFIG_ERROR;
     }
     if (!existsSync(configPath)) {
-      process.stderr.write(`preflight --gate: config file not found at ${configPath}\n`);
+      process.stderr.write(`vantage --gate: config file not found at ${configPath}\n`);
       return EXIT.CONFIG_ERROR;
     }
-    const gateProjectRootLexical = findProjectBoundary(consumerCwd);
-    const gateProjectRoot = realPath(gateProjectRootLexical);
+    const gateRepoRootLexical = findProjectBoundary(consumerCwd);
+    const gateRepoRoot = realPath(gateRepoRootLexical);
     const gateConfigReal = realPath(configPath);
     // The config's OWN enclosing git checkout, anchored on the config path (NOT
     // on cwd). This is the load-bearing provenance check: it rejects a config
-    // that lives inside ANY checkout regardless of where preflight was launched
-    // from — closing the honest misconfig where the driver runs preflight from a
+    // that lives inside ANY checkout regardless of where vantage was launched
+    // from — closing the honest misconfig where the driver runs vantage from a
     // scratch/staging cwd but passes a --config path inside the real PR checkout
     // (the cwd-derived boundary below would compare against the scratch dir and
     // wrongly accept the PR-controlled JSON). The trusted gate driver must stage
@@ -324,12 +324,12 @@ async function main() {
     // well as one pointing INWARD from outside.
     if (
       gateConfigEnclosingRepo !== null ||
-      isPathInsideOrEqual(configPath, gateProjectRootLexical) ||
-      isPathInsideOrEqual(gateConfigReal, gateProjectRoot)
+      isPathInsideOrEqual(configPath, gateRepoRootLexical) ||
+      isPathInsideOrEqual(gateConfigReal, gateRepoRoot)
     ) {
       process.stderr.write(
-        `preflight --gate: --config must be staged outside the current project checkout (got "${configPath}").\n` +
-          `Resolved project boundary: ${gateProjectRoot}\n` +
+        `vantage --gate: --config must be staged outside the current project checkout (got "${configPath}").\n` +
+          `Resolved project boundary: ${gateRepoRoot}\n` +
           (gateConfigEnclosingRepo !== null
             ? `Config is inside a git checkout: ${gateConfigEnclosingRepo}\n`
             : '') +
@@ -342,15 +342,15 @@ async function main() {
   } else if (configPath) {
     if (!path.isAbsolute(configPath)) configPath = path.resolve(consumerCwd, configPath);
     if (!existsSync(configPath)) {
-      process.stderr.write(`preflight: config file not found at ${configPath}\n`);
+      process.stderr.write(`vantage: config file not found at ${configPath}\n`);
       return EXIT.CONFIG_ERROR;
     }
   } else {
     configPath = discoverConfigPath(consumerCwd);
     if (!configPath) {
       process.stderr.write(
-        'preflight: no preflight.config.{ts,mts,js,mjs} found in this directory or any ancestor.\n' +
-          'Run `npx preflight init` to create a starter config.\n'
+        'vantage: no vantage.config.{ts,mts,js,mjs} found in this directory or any ancestor.\n' +
+          'Run `npx vantage init` to create a starter config.\n'
       );
       return EXIT.CONFIG_ERROR;
     }
@@ -366,14 +366,14 @@ async function main() {
       ? JSON.parse(readFileSync(configPath, 'utf8'))
       : await loadConsumerConfig(configPath, consumerCwd);
   } catch (err) {
-    const prefix = parsed.gate ? `preflight --gate: failed to parse ${configPath}: ` : 'preflight: ';
+    const prefix = parsed.gate ? `vantage --gate: failed to parse ${configPath}: ` : 'vantage: ';
     process.stderr.write(`${prefix}${err && err.message ? err.message : String(err)}\n`);
     return EXIT.CONFIG_ERROR;
   }
 
   if (rawConfig === undefined || rawConfig === null) {
     process.stderr.write(
-      `preflight: ${configPath} did not export a config. ` +
+      `vantage: ${configPath} did not export a config. ` +
         'Use `export default defineConfig({ ... })`.\n'
     );
     return EXIT.CONFIG_ERROR;
@@ -381,17 +381,17 @@ async function main() {
 
   // Validate via defineConfig — accepts either a raw config object OR an
   // already-resolved one (idempotent). This is what catches typos.
-  const { validateAndResolve, validateGateConfig, PreflightConfigError } = require_('../dist/defineConfig.js');
+  const { validateAndResolve, validateGateConfig, VantageConfigError } = require_('../dist/defineConfig.js');
   let resolved;
   try {
     if (parsed.gate) validateGateConfig(rawConfig);
     resolved = validateAndResolve(rawConfig);
   } catch (err) {
-    if (err instanceof PreflightConfigError || (err && err.name === 'PreflightConfigError')) {
+    if (err instanceof VantageConfigError || (err && err.name === 'VantageConfigError')) {
       process.stderr.write(`${err.message}\n`);
       return EXIT.CONFIG_ERROR;
     }
-    process.stderr.write(`preflight: invalid config: ${err && err.message ? err.message : String(err)}\n`);
+    process.stderr.write(`vantage: invalid config: ${err && err.message ? err.message : String(err)}\n`);
     return EXIT.CONFIG_ERROR;
   }
 
@@ -400,7 +400,7 @@ async function main() {
     const match = resolved.routes.find((r) => r.name === parsed.only);
     if (!match) {
       process.stderr.write(
-        `preflight: --only="${parsed.only}" did not match any route name. ` +
+        `vantage: --only="${parsed.only}" did not match any route name. ` +
           `Known routes: ${resolved.routes.map((r) => r.name).join(', ')}\n`
       );
       return EXIT.CONFIG_ERROR;
@@ -420,7 +420,7 @@ async function main() {
       return await runTeardown({ rawConfig: resolved, consumerCwd, verbose: parsed.verbose });
     } catch (err) {
       process.stderr.write(
-        `preflight teardown: ${err && err.stack ? err.stack : String(err)}\n`
+        `vantage teardown: ${err && err.stack ? err.stack : String(err)}\n`
       );
       return EXIT.RUNTIME_ERROR;
     }
@@ -431,11 +431,11 @@ async function main() {
       return await cmdLinks(parsed, consumerCwd, resolved, version);
     } catch (err) {
       if (err && (err.name === 'EnvError' || err.code === 'ENV_ERROR')) {
-        process.stderr.write(`preflight: ${err.message}\n`);
+        process.stderr.write(`vantage: ${err.message}\n`);
         return EXIT.ENV_ERROR;
       }
       process.stderr.write(
-        `preflight --links: ${err && err.stack ? err.stack : String(err)}\n`
+        `vantage --links: ${err && err.stack ? err.stack : String(err)}\n`
       );
       return EXIT.RUNTIME_ERROR;
     }
@@ -448,16 +448,16 @@ async function main() {
       args: parsed,
       rawConfig: resolved,
       consumerCwd,
-      preflightVersion: version,
+      vantageVersion: version,
     });
     return result.exitCode;
   } catch (err) {
     if (err && (err.name === 'EnvError' || err.code === 'ENV_ERROR')) {
-      process.stderr.write(`preflight: ${err.message}\n`);
+      process.stderr.write(`vantage: ${err.message}\n`);
       return EXIT.ENV_ERROR;
     }
     process.stderr.write(
-      `preflight: unexpected runtime error: ${err && err.stack ? err.stack : String(err)}\n`
+      `vantage: unexpected runtime error: ${err && err.stack ? err.stack : String(err)}\n`
     );
     return EXIT.RUNTIME_ERROR;
   }
@@ -466,6 +466,6 @@ async function main() {
 main()
   .then((code) => process.exit(code ?? EXIT.RUNTIME_ERROR))
   .catch((err) => {
-    process.stderr.write(`preflight: ${err && err.stack ? err.stack : String(err)}\n`);
+    process.stderr.write(`vantage: ${err && err.stack ? err.stack : String(err)}\n`);
     process.exit(EXIT.RUNTIME_ERROR);
   });

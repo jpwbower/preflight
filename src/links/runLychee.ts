@@ -2,13 +2,13 @@ import { spawn } from 'node:child_process';
 import { createWriteStream, existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ResolvedPreflightConfig } from '../types.js';
+import type { ResolvedVantageConfig } from '../types.js';
 
 export interface RunLycheeOptions {
   consumerCwd: string;
-  config: ResolvedPreflightConfig;
+  config: ResolvedVantageConfig;
   verbose: boolean;
-  preflightVersion: string;
+  vantageVersion: string;
 }
 
 export interface RunLycheeResult {
@@ -34,7 +34,7 @@ export interface RunLycheeResult {
 export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult> {
   const { consumerCwd, config, verbose } = opts;
 
-  const lastRunDir = path.join(consumerCwd, '.preflight', 'last-run');
+  const lastRunDir = path.join(consumerCwd, '.vantage', 'last-run');
   await mkdir(lastRunDir, { recursive: true });
 
   // The seed URLs: baseURL + each configured route. lychee will follow
@@ -46,7 +46,7 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   if (existsSync(consumerToml)) {
     args.push('--config', consumerToml);
     if (verbose) {
-      process.stderr.write(`[preflight] lychee: using consumer config ${consumerToml}\n`);
+      process.stderr.write(`[vantage] lychee: using consumer config ${consumerToml}\n`);
     }
   }
 
@@ -62,7 +62,7 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   await checkLycheeVersion();
 
   if (verbose) {
-    process.stderr.write(`[preflight] lychee: launching: lychee ${args.join(' ')}\n`);
+    process.stderr.write(`[vantage] lychee: launching: lychee ${args.join(' ')}\n`);
   }
 
   // Pipe stdout/stderr straight to disk so a large-site sweep (lychee
@@ -83,7 +83,7 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   // Trade-off: shell:true with an args array trips Node's DEP0190
   // deprecation warning ("arguments are not escaped, only
   // concatenated") and exposes the args list to cmd.exe parsing
-  // (& | < > ^ etc. would be interpreted). preflight's args are
+  // (& | < > ^ etc. would be interpreted). vantage's args are
   // config-derived: route.path is validated to start with `/`, and
   // baseURL is validated as a URL — neither rejects all cmd
   // metacharacters, so the surface is non-zero. The threat model is
@@ -97,7 +97,7 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   }
   if (mainResult.notFound) {
     process.stderr.write(
-      '[preflight] lychee: command not found. Install the lychee CLI:\n' +
+      '[vantage] lychee: command not found. Install the lychee CLI:\n' +
         '  https://lychee.cli.rs/installation/\n' +
         '  (e.g. `cargo install lychee`, `brew install lychee`, ' +
         '`scoop install lychee`)\n'
@@ -113,7 +113,7 @@ export async function runLychee(opts: RunLycheeOptions): Promise<RunLycheeResult
   // omitted so the JSON keyspace is stable and downstream tooling
   // doesn't need to handle two different shapes for one path.
   const summary = {
-    version: opts.preflightVersion,
+    version: opts.vantageVersion,
     finishedAt: new Date().toISOString(),
     cadence: 'links' as const,
     exitCode,
@@ -154,14 +154,14 @@ const LYCHEE_MIN_MINOR = 13;
  * once, on the first place we discover we need `shell: true` (version
  * probe OR main spawn). Annotating ownership of the fallback prevents
  * consumers from reading Node's unrelated-looking DEP0190 warning as
- * a preflight bug.
+ * a vantage bug.
  */
 let cmdFallbackBreadcrumbWritten = false;
 function writeCmdFallbackBreadcrumb(): void {
   if (cmdFallbackBreadcrumbWritten) return;
   cmdFallbackBreadcrumbWritten = true;
   process.stderr.write(
-    '[preflight] lychee: bare `lychee` not found on PATH; retrying via cmd.exe for .cmd-shim support. ' +
+    '[vantage] lychee: bare `lychee` not found on PATH; retrying via cmd.exe for .cmd-shim support. ' +
       '(Node will emit a DEP0190 deprecation warning — this is expected; see README v0.5.)\n'
   );
 }
@@ -171,7 +171,7 @@ function writeCmdFallbackBreadcrumb(): void {
  * "lychee version skew is silent until the CLI rejects an argument".
  *
  * Warns (does not block) if the installed lychee is older than 0.13.0 —
- * preflight uses --no-progress / --max-concurrency / --timeout, which
+ * vantage uses --no-progress / --max-concurrency / --timeout, which
  * older lychee builds may not support. On parse failure we emit a
  * softer warning and proceed; link checking is best-effort and a
  * version check failing should never punish a consumer who pinned an
@@ -200,7 +200,7 @@ async function checkLycheeVersion(): Promise<void> {
   const m = /^lychee\s+(\d+)\.(\d+)\.(\d+)/m.exec(captured);
   if (!m) {
     process.stderr.write(
-      `[preflight] lychee: could not parse version from "${captured.trim().split(/\r?\n/)[0] ?? ''}"; proceeding without compatibility check.\n`
+      `[vantage] lychee: could not parse version from "${captured.trim().split(/\r?\n/)[0] ?? ''}"; proceeding without compatibility check.\n`
     );
     return;
   }
@@ -212,7 +212,7 @@ async function checkLycheeVersion(): Promise<void> {
     (major === LYCHEE_MIN_MAJOR && minor < LYCHEE_MIN_MINOR);
   if (tooOld) {
     process.stderr.write(
-      `[preflight] lychee ${major}.${minor}.${patch} detected. preflight uses --no-progress / --max-concurrency / --timeout which may not be supported. Upgrade via brew/scoop/cargo install lychee@latest.\n`
+      `[vantage] lychee ${major}.${minor}.${patch} detected. vantage uses --no-progress / --max-concurrency / --timeout which may not be supported. Upgrade via brew/scoop/cargo install lychee@latest.\n`
     );
   }
 }
@@ -275,7 +275,7 @@ async function spawnLycheeMain(
         return;
       }
       process.stderr.write(
-        `[preflight] lychee: failed to spawn — ${err instanceof Error ? err.message : String(err)}\n` +
+        `[vantage] lychee: failed to spawn — ${err instanceof Error ? err.message : String(err)}\n` +
           'Install: https://lychee.cli.rs/installation/\n'
       );
       resolve({ exitCode: 3, notFound: false });
@@ -300,7 +300,7 @@ async function spawnLycheeMain(
         settle({ exitCode: 3, notFound: true });
         return;
       }
-      process.stderr.write(`[preflight] lychee: spawn error: ${err.message}\n`);
+      process.stderr.write(`[vantage] lychee: spawn error: ${err.message}\n`);
       settle({ exitCode: 4, notFound: false });
     });
     child.on('exit', (code) => {
