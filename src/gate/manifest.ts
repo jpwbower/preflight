@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 
 /**
- * `preflight --gate` manifest model.
+ * `vantage --gate` manifest model.
  *
  * The gate cadence renders a runner-supplied authoritative route set and
- * emits a DETERMINISTIC per-route manifest that an external gate (the CTR
- * cross-model-review runner) binds a verdict to. The trust property: the
+ * emits a DETERMINISTIC per-route manifest that an external
+ * cross-model-review runner binds a verdict to. The trust property: the
  * manifest is produced by the runner-driven render, never by a model's
  * claimed evidence, so a reviewer cannot fabricate the surface.
  *
@@ -42,7 +42,7 @@ import { createHash } from 'node:crypto';
  *     is a separate audience tier handled by a Phase-B checker that binds
  *     evidence on one canonical render environment — NOT this primitive. That
  *     pixel-binding is a deliberately-deferred, tracked design decision
- *     (preflight issue #3), not an oversight in this cadence.
+ *     (vantage issue #3), not an oversight in this cadence.
  */
 
 /** Current gate-manifest schema version. Bump on any breaking shape change. */
@@ -98,7 +98,7 @@ export interface GateRouteRecord {
 }
 
 export interface GateManifestMeta {
-  preflightVersion: string;
+  vantageVersion: string;
   /** ISO timestamp — recorded but EXCLUDED from the binding hash. */
   finishedAt: string;
   /** Optional surface label forwarded by the runner (e.g. "cockpit"). */
@@ -282,7 +282,7 @@ export function assembleManifest(
   });
   return {
     schemaVersion: GATE_MANIFEST_SCHEMA_VERSION,
-    preflightVersion: meta.preflightVersion,
+    vantageVersion: meta.vantageVersion,
     finishedAt: meta.finishedAt,
     surface,
     project: meta.project,

@@ -1,10 +1,10 @@
 import { test as plainTest } from '@playwright/test';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { loadPreflightConfig } from './_helpers.js';
+import { loadVantageConfig } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
-const isRelease = process.env.PREFLIGHT_RELEASE === '1';
+const cfg = loadVantageConfig();
+const isRelease = process.env.VANTAGE_RELEASE === '1';
 const isWindows = process.platform === 'win32';
 
 /**
@@ -119,10 +119,10 @@ if (!isRelease) {
         // real environments.
         //
         // Instead, persist the captured phrases under
-        // `.preflight/last-run/nvda-spoken-phrases.json` so a human
+        // `.vantage/last-run/nvda-spoken-phrases.json` so a human
         // reviewer can confirm NVDA's accessibility-tree walk matches
         // expectations on each route.
-        const artefactDir = path.join(process.cwd(), '.preflight', 'last-run');
+        const artefactDir = path.join(process.cwd(), '.vantage', 'last-run');
         await mkdir(artefactDir, { recursive: true });
         await writeFile(
           path.join(artefactDir, 'nvda-spoken-phrases.json'),

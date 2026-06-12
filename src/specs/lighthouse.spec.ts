@@ -1,9 +1,9 @@
 import { test, chromium } from '@playwright/test';
-import { loadPreflightConfig } from './_helpers.js';
-import type { ResolvedPreflightConfig } from '../types.js';
+import { loadVantageConfig } from './_helpers.js';
+import type { ResolvedVantageConfig } from '../types.js';
 
-const cfg = loadPreflightConfig();
-const isRelease = process.env.PREFLIGHT_RELEASE === '1';
+const cfg = loadVantageConfig();
+const isRelease = process.env.VANTAGE_RELEASE === '1';
 
 /**
  * Lighthouse perf / a11y / best-practices / seo budgets.
@@ -26,7 +26,7 @@ const isRelease = process.env.PREFLIGHT_RELEASE === '1';
  *   Real-world apps rarely hit 100 on perf without aggressive
  *   optimisation; treating 75 as the floor catches regressions
  *   without breaking the build on day one. Consumers can override
- *   via `lighthouseThresholds` in preflight.config.ts.
+ *   via `lighthouseThresholds` in vantage.config.ts.
  */
 
 const SUPPORTED_PROJECT = 'chromium__desktop-1280';
@@ -67,14 +67,14 @@ function thresholdsForRoute(
  * are serialised and Playwright workers don't fight for ports
  * themselves), and the failure mode is loud (Chromium fails to start
  * and the test errors immediately). If you hit it repeatedly,
- * reserve a fixed port via PREFLIGHT_LIGHTHOUSE_PORT.
+ * reserve a fixed port via VANTAGE_LIGHTHOUSE_PORT.
  */
 async function findFreePort(): Promise<number> {
-  const fixed = process.env.PREFLIGHT_LIGHTHOUSE_PORT;
+  const fixed = process.env.VANTAGE_LIGHTHOUSE_PORT;
   if (fixed) {
     const n = Number(fixed);
     if (!Number.isInteger(n) || n <= 0 || n > 65535) {
-      throw new Error(`PREFLIGHT_LIGHTHOUSE_PORT="${fixed}" is not a valid port number.`);
+      throw new Error(`VANTAGE_LIGHTHOUSE_PORT="${fixed}" is not a valid port number.`);
     }
     return n;
   }
@@ -137,7 +137,7 @@ if (!isRelease) {
           // here. If cfg.auth produced a cached storageState, we must
           // pass it explicitly — otherwise an authenticated route would
           // redirect to /login and Lighthouse would score the login page.
-          const storageStatePath = (cfg as ResolvedPreflightConfig & {
+          const storageStatePath = (cfg as ResolvedVantageConfig & {
             storageStatePath?: string;
           }).storageStatePath;
           const page = await browser.newPage({

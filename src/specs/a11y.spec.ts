@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { AxeBuilder } from '@axe-core/playwright';
 import type { AxeResults, Result, NodeResult } from 'axe-core';
-import { applyNetworkPreset, loadPreflightConfig } from './_helpers.js';
+import { applyNetworkPreset, loadVantageConfig } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
+const cfg = loadVantageConfig();
 
 const WCAG_TAGS = [
   'wcag2a',
@@ -14,7 +14,7 @@ const WCAG_TAGS = [
   'wcag22aa',
 ];
 
-const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
+const isSmoke = process.env.VANTAGE_SMOKE === '1';
 
 test.describe('a11y (axe-core, WCAG 2.0/2.1/2.2 A+AA)', () => {
   for (const route of cfg.routes) {
@@ -70,7 +70,7 @@ test.describe('a11y (axe-core, WCAG 2.0/2.1/2.2 A+AA)', () => {
           .join('\n');
         // Use test.info().annotations so the report shows the soft-warning.
         test.info().annotations.push({
-          type: 'preflight-warn',
+          type: 'vantage-warn',
           description: `color-contrast over background-image (logged, not failing):\n${summary}`,
         });
       }

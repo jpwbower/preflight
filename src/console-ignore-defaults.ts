@@ -1,7 +1,7 @@
 /**
  * Default console-error ignore-list.
  *
- * The browser console is noisy. Out of the box preflight ignores:
+ * The browser console is noisy. Out of the box vantage ignores:
  *  - common analytics beacon failures (visitors block them with adblockers)
  *  - framework deprecation warnings (real but already-known signal)
  *  - browser extension noise injected into the page context
@@ -9,7 +9,7 @@
  *  - DevTools / source-map noise during development
  *
  * Consumers EXTEND this list via `consoleIgnore: [...]` in
- * preflight.config.ts — the consumer's list is concatenated, not used as
+ * vantage.config.ts — the consumer's list is concatenated, not used as
  * a replacement. This is intentional: silencing the defaults wholesale
  * by accident is the bug we are trying to prevent.
  */

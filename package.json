@@ -1,9 +1,9 @@
 {
-  "name": "preflight",
+  "name": "vantage",
   "version": "0.7.0",
   "description": "Local-only web-assurance scaffolding for any web project. Runs Playwright (Chromium/Firefox/WebKit) plus axe-core, accessible-name sweep, real-NVDA (via Guidepup on --release, opt-in), Lighthouse budgets, html-validate, and lychee link-check against your dev server, with no SaaS dependency.",
   "license": "MIT",
-  "author": "preflight contributors",
+  "author": "vantage contributors",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -18,7 +18,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "preflight": "bin/preflight.mjs"
+    "vantage": "bin/vantage.mjs"
   },
   "files": [
     "bin",
@@ -31,7 +31,7 @@
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
     "build": "tsc -p tsconfig.build.json",
-    "test": "preflight",
+    "test": "npm exec -- vantage --config ci/vantage.smoke.config.ts --smoke --ci",
     "validate:gate-inert": "npm run build && node ci/gate-inert-validation.mjs"
   },
   "peerDependencies": {
@@ -60,6 +60,6 @@
     "wcag",
     "smoke-test",
     "web-assurance",
-    "preflight"
+    "vantage"
   ]
 }

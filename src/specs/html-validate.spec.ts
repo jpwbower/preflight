@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { loadPreflightConfig } from './_helpers.js';
+import { loadVantageConfig } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
-const isRelease = process.env.PREFLIGHT_RELEASE === '1';
+const cfg = loadVantageConfig();
+const isRelease = process.env.VANTAGE_RELEASE === '1';
 
 /**
  * Strict HTML validation via html-validate.

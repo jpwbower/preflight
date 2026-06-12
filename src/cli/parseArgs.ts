@@ -55,7 +55,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   };
 
   let i = 0;
-  // Subcommand: `preflight init [...]`, `preflight list`, `preflight teardown`
+  // Subcommand: `vantage init [...]`, `vantage list`, `vantage teardown`
   if (argv[i] === 'init') {
     args.command = 'init';
     i++;
@@ -185,20 +185,20 @@ export function detectFlagConflict(args: ParsedArgs): string | null {
 
 export function helpText(): string {
   return [
-    'preflight — local-only web-assurance scaffolding',
+    'vantage — local-only web-assurance scaffolding',
     '',
     'USAGE',
-    '  preflight                    full default suite',
-    '  preflight --smoke            single-engine smoke (chromium + mobile-375)',
-    '  preflight --release          full + nvda + lighthouse + html-validate',
-    '  preflight --links            lychee link check (standalone, no Playwright)',
-    '  preflight --visual           visual regression on one project (toHaveScreenshot)',
-    '  preflight --gate --config <abs-outside-project.json>',
+    '  vantage                    full default suite',
+    '  vantage --smoke            single-engine smoke (chromium + mobile-375)',
+    '  vantage --release          full + nvda + lighthouse + html-validate',
+    '  vantage --links            lychee link check (standalone, no Playwright)',
+    '  vantage --visual           visual regression on one project (toHaveScreenshot)',
+    '  vantage --gate --config <abs-outside-project.json>',
     '                               trusted gate-manifest capture (CI gate driver)',
-    '  preflight init [--force]     drop starter preflight.config.ts',
-    '  preflight init --ci          additionally drop .github/workflows/preflight.yml',
-    '  preflight list               print engine x viewport x spec matrix; do not run',
-    '  preflight teardown           run cfg.auth.teardown + delete cached storageState',
+    '  vantage init [--force]     drop starter vantage.config.ts',
+    '  vantage init --ci          additionally drop .github/workflows/vantage.yml',
+    '  vantage list               print engine x viewport x spec matrix; do not run',
+    '  vantage teardown           run cfg.auth.teardown + delete cached storageState',
     '',
     'CADENCE',
     '  --smoke       per-commit (fast, chromium-only)',
@@ -218,7 +218,7 @@ export function helpText(): string {
     '                               hydration DOM + axe + render-health per route). Requires',
     '                               --config pointing at an INERT absolute .json config staged',
     '                               outside the checkout, with webServer:false (never executes',
-    '                               a preflight.config.ts or config-provided server command).',
+    '                               a vantage.config.ts or config-provided server command).',
     '                               Driven by an external CI gate.',
     '  --no-auth                    skip cfg.auth.setup even if configured',
     '  --list                       alias for the `list` subcommand',
@@ -231,24 +231,24 @@ export function helpText(): string {
     '  --reporter=<name>            line | list | html | json | junit',
     '  --config=<path>              override config discovery',
     '  --ci                         (run) strict reporters + fail-on-warning + no reuseExistingServer',
-    '  --ci                         (init) additionally drop .github/workflows/preflight.yml',
+    '  --ci                         (init) additionally drop .github/workflows/vantage.yml',
     '  --no-reuse                   force a fresh webServer launch',
     '  --force, -f                  (init) overwrite existing files',
     '  --help, -h                   show this message',
-    '  --version, -V                print preflight version',
+    '  --version, -V                print vantage version',
     '',
     'EXIT CODES',
     '  0  all checks passed',
     '  1  test failure',
     '  2  config error',
-    '  3  environment error (preflight dist/ missing or @playwright/test peer dep not installed)',
+    '  3  environment error (vantage dist/ missing or @playwright/test peer dep not installed)',
     '  4  runtime error (includes wall-clock hang — see runnerTimeoutMs below)',
     '',
     'WALL-CLOCK CAP',
     '  Every run has an upper bound. Defaults: --smoke 5 min, --gate 15 min,',
     '  --visual 30 min, default cadence 30 min, --release 60 min. Override via runnerTimeoutMs',
-    '  in preflight.config.ts (number of milliseconds, applies to all cadences).',
-    '  On expiry preflight SIGKILLs Playwright + writes summary.json with',
+    '  in vantage.config.ts (number of milliseconds, applies to all cadences).',
+    '  On expiry vantage SIGKILLs Playwright + writes summary.json with',
     '  hang.hangDetected: true and exit code 4.',
     '',
   ].join('\n');

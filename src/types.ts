@@ -15,10 +15,10 @@ export type ViewportName = 'mobile-320' | 'mobile-375' | 'tablet-768' | 'desktop
  * whole site, or to tighten a11y on a landing page where the budget
  * justifies a higher bar.
  */
-export interface PreflightRoute {
+export interface VantageRoute {
   name: string;
   path: string;
-  lighthouseThresholds?: PreflightLighthouseThresholds;
+  lighthouseThresholds?: VantageLighthouseThresholds;
 }
 
 /**
@@ -26,7 +26,7 @@ export interface PreflightRoute {
  * skip server launch (e.g. when running against a public URL or an
  * externally-managed server).
  */
-export interface PreflightWebServer {
+export interface VantageWebServer {
   command: string;
   url?: string;
   port?: number;
@@ -39,7 +39,7 @@ export interface PreflightWebServer {
  * axe rules a consumer wants suppressed. Logged loudly in the report header
  * so disabled rules can never silently hide.
  */
-export interface PreflightAxeDisabled {
+export interface VantageAxeDisabled {
   rule: string;
   reason: string;
 }
@@ -54,7 +54,7 @@ export interface PreflightAxeDisabled {
  * (and may produce no score in Lighthouse 13+, in which case the
  * threshold is silently a no-op). Avoid relying on it for new configs.
  */
-export interface PreflightLighthouseThresholds {
+export interface VantageLighthouseThresholds {
   performance?: number;
   accessibility?: number;
   'best-practices'?: number;
@@ -80,29 +80,29 @@ export interface PreflightLighthouseThresholds {
  * own simulated throttling for accurate perf budgets and we don't want
  * the two to compete.
  */
-export type PreflightNetworkPresetName = '3g-slow' | '3g-fast' | '4g' | 'wifi';
-export interface PreflightNetworkPresetCustom {
+export type VantageNetworkPresetName = '3g-slow' | '3g-fast' | '4g' | 'wifi';
+export interface VantageNetworkPresetCustom {
   downloadKbps: number;
   uploadKbps: number;
   latencyMs: number;
 }
-export type PreflightNetworkPreset = PreflightNetworkPresetName | PreflightNetworkPresetCustom;
+export type VantageNetworkPreset = VantageNetworkPresetName | VantageNetworkPresetCustom;
 
 /**
  * Auth lifecycle hooks. `setup` is the path (relative to the consumer's
  * project root, or absolute) of a JS/TS module that returns a Playwright
- * storageState object — preflight imports it, calls its default export,
+ * storageState object — vantage imports it, calls its default export,
  * caches the returned state, and wires it into every project's
  * `use.storageState`. `teardown`, if set, runs after the suite finishes
- * and on the explicit `preflight teardown` subcommand.
+ * and on the explicit `vantage teardown` subcommand.
  *
  * `storageStatePath` is where the captured state is persisted between
- * runs; default `.preflight/auth/storageState.json` under the consumer's
+ * runs; default `.vantage/auth/storageState.json` under the consumer's
  * cwd. `expirySeconds`, if set, forces a re-run of `setup` when the
  * cached state is older than that age — useful for short-lived session
  * tokens.
  */
-export interface PreflightAuth {
+export interface VantageAuth {
   setup: string;
   teardown?: string;
   storageStatePath?: string;
@@ -110,22 +110,22 @@ export interface PreflightAuth {
 }
 
 /**
- * Consumer-facing configuration. Authored as preflight.config.ts in the
+ * Consumer-facing configuration. Authored as vantage.config.ts in the
  * consuming project root.
  */
-export interface PreflightConfig {
+export interface VantageConfig {
   /** Base URL of the site under test (e.g. http://127.0.0.1:3000). */
   baseURL: string;
 
   /** Routes to test against `baseURL`. At least one required. */
-  routes: PreflightRoute[];
+  routes: VantageRoute[];
 
   /**
    * Web server to launch. Must be set explicitly to either a config object
-   * (preflight starts the server) or `false` (consumer manages the server
+   * (vantage starts the server) or `false` (consumer manages the server
    * themselves, e.g. running against a remote URL).
    */
-  webServer: PreflightWebServer | false;
+  webServer: VantageWebServer | false;
 
   /**
    * Engines under test. Default: all three.
@@ -148,13 +148,13 @@ export interface PreflightConfig {
    * axe rules disabled in a11y.spec. Each entry MUST include a `reason`;
    * disabled rules render in a loud header at the top of every report.
    */
-  axeDisabled?: PreflightAxeDisabled[];
+  axeDisabled?: VantageAxeDisabled[];
 
   /**
    * If set, smoke.spec waits for this selector to appear before asserting
    * page readiness. Recommended pattern: emit `<div data-test-ready>` from
    * your app when it has finished hydrating / fetching. Default unset:
-   * preflight waits for `domcontentloaded` only.
+   * vantage waits for `domcontentloaded` only.
    */
   readyMarker?: string;
 
@@ -170,17 +170,17 @@ export interface PreflightConfig {
 
   /**
    * Lighthouse score thresholds. Only consulted on `--release`. If unset,
-   * preflight uses perf 75, a11y 95, best-practices 85, seo 90. Per-route
-   * overrides via `PreflightRoute.lighthouseThresholds` take precedence
+   * vantage uses perf 75, a11y 95, best-practices 85, seo 90. Per-route
+   * overrides via `VantageRoute.lighthouseThresholds` take precedence
    * over this suite-wide value (merged per-category).
    */
-  lighthouseThresholds?: PreflightLighthouseThresholds;
+  lighthouseThresholds?: VantageLighthouseThresholds;
 
   /**
    * Visual regression settings. Only consulted on `--visual`. The visual
    * spec runs `expect(page).toHaveScreenshot()` for each route on a
    * single project (default `chromium__desktop-1280`). Baselines are
-   * managed by the consumer — preflight ships none. See README for the
+   * managed by the consumer — vantage ships none. See README for the
    * Windows ClearType escape hatch (`snapshotPathTemplate`).
    *
    * `visualProject` selects which engine__viewport project the visual
@@ -214,21 +214,21 @@ export interface PreflightConfig {
 
   /**
    * Authenticated-route lifecycle. Set to wire a setup hook that
-   * produces a storageState (cookies + localStorage), which preflight
+   * produces a storageState (cookies + localStorage), which vantage
    * caches and passes to every Playwright project.
    */
-  auth?: PreflightAuth;
+  auth?: VantageAuth;
 
   /**
    * Apply CDP-based network throttling to smoke.spec and a11y.spec. See
-   * {@link PreflightNetworkPreset}. Chromium-only — preflight warns
+   * {@link VantageNetworkPreset}. Chromium-only — vantage warns
    * once and proceeds at full bandwidth on firefox / webkit.
    *
    * NOT wired into keyboard / emulated-media / virtual-sr (bandwidth
    * does not affect their signal) or lighthouse.spec (Lighthouse runs
    * its own simulated throttling).
    */
-  networkPreset?: PreflightNetworkPreset;
+  networkPreset?: VantageNetworkPreset;
 
   /**
    * Run html-validate against the raw HTTP response body (via Node `fetch`)
@@ -259,38 +259,38 @@ export interface PreflightConfig {
    * paint. Do not file as a bug.
    *
    * Redirects: Node `fetch` follows by default (`redirect: 'follow'`).
-   * preflight inherits that — matches what html-validate would see in a
+   * vantage inherits that — matches what html-validate would see in a
    * browser.
    */
   htmlValidateRaw?: boolean;
 
   /**
    * Additional spec globs to treat as release-only — appended to
-   * preflight's built-in release-only spec list (nvda, lighthouse,
+   * vantage's built-in release-only spec list (nvda, lighthouse,
    * html-validate) and applied via project-level `testIgnore`. Matched
    * files are excluded from every project EXCEPT
    * `chromium__desktop-1280` (the release-supported project).
    *
    * NOTE: Playwright matches `testIgnore` globs against files
-   * discovered under the active `testDir`. preflight's `testDir` is its
+   * discovered under the active `testDir`. vantage's `testDir` is its
    * own bundled specs dir, so these patterns only do anything if the
    * consumer's spec files are ALSO discoverable there (typically via
    * `playwrightOverrides.testDir` or `testMatch`). For consumer specs
    * that live in a separate root, gate them yourself using
-   * `process.env.PREFLIGHT_RELEASE === '1'` inside your own
+   * `process.env.VANTAGE_RELEASE === '1'` inside your own
    * `playwrightOverrides`.
    */
   releaseOnlyPatterns?: string[];
 
   /**
    * Escape hatch for advanced consumers — extra Playwright config merged
-   * into the generated config last. Use sparingly; preflight may override.
+   * into the generated config last. Use sparingly; vantage may override.
    */
   playwrightOverrides?: Partial<PlaywrightTestConfig>;
 
   /**
    * Wall-clock upper bound (in milliseconds) for the whole Playwright
-   * run, inclusive of all engines × viewports × specs × routes. preflight
+   * run, inclusive of all engines × viewports × specs × routes. vantage
    * applies this as Playwright's `globalTimeout` AND wraps the spawned
    * Playwright child with a SIGKILL after `runnerTimeoutMs + 90_000`
    * (a 90 s grace window so Playwright still has time to shut down
@@ -305,7 +305,7 @@ export interface PreflightConfig {
    * scripting on summary.json can detect and report the hang
    * deterministically.
    *
-   * If unset, preflight picks a cadence-aware default:
+   * If unset, vantage picks a cadence-aware default:
    *   --smoke    →  5 min  (300_000 ms)
    *   --visual   → 30 min  (1_800_000 ms)
    *   default    → 30 min  (1_800_000 ms)
@@ -313,31 +313,31 @@ export interface PreflightConfig {
    *
    * Setting this explicitly overrides the cadence default for ALL
    * cadences in the same run. To set per-cadence caps, branch on
-   * `process.argv` in your `preflight.config.ts` before returning.
+   * `process.argv` in your `vantage.config.ts` before returning.
    */
   runnerTimeoutMs?: number;
 }
 
 /**
- * Defaults-applied, validated form of `PreflightConfig`. Internal.
+ * Defaults-applied, validated form of `VantageConfig`. Internal.
  */
-export interface ResolvedPreflightConfig {
+export interface ResolvedVantageConfig {
   baseURL: string;
-  routes: PreflightRoute[];
-  webServer: PreflightWebServer | false;
+  routes: VantageRoute[];
+  webServer: VantageWebServer | false;
   engines: EngineName[];
   viewports: ViewportName[];
   consoleIgnore: RegExp[];
-  axeDisabled: PreflightAxeDisabled[];
+  axeDisabled: VantageAxeDisabled[];
   readyMarker?: string;
   locale: string;
   timezoneId: string;
-  lighthouseThresholds?: PreflightLighthouseThresholds;
+  lighthouseThresholds?: VantageLighthouseThresholds;
   visualProject?: string;
   visualThreshold?: number;
   gateA11yGating?: boolean;
-  auth?: PreflightAuth;
-  networkPreset?: PreflightNetworkPreset;
+  auth?: VantageAuth;
+  networkPreset?: VantageNetworkPreset;
   releaseOnlyPatterns?: string[];
   htmlValidateRaw?: boolean;
   playwrightOverrides?: Partial<PlaywrightTestConfig>;

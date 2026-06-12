@@ -1,14 +1,14 @@
 import { defineConfig, devices, type PlaywrightTestConfig } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EngineName, ResolvedPreflightConfig } from './types.js';
+import type { EngineName, ResolvedVantageConfig } from './types.js';
 import { buildViewportProfiles, type ViewportProfile } from './viewports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * preflight forwards the consumer's resolved config as JSON via env. RegExp
+ * vantage forwards the consumer's resolved config as JSON via env. RegExp
  * objects don't survive JSON round-trips, so consoleIgnore is serialised as
  * { source, flags } pairs and reconstructed here.
  */
@@ -16,18 +16,18 @@ interface SerialisedRegExp {
   source: string;
   flags: string;
 }
-interface SerialisedConfig extends Omit<ResolvedPreflightConfig, 'consoleIgnore'> {
+interface SerialisedConfig extends Omit<ResolvedVantageConfig, 'consoleIgnore'> {
   consoleIgnore: SerialisedRegExp[];
   /** Resolved by runner.ts when cfg.auth is set and --no-auth wasn't passed. */
   storageStatePath?: string;
 }
 
-function loadConfigFromEnv(): ResolvedPreflightConfig & { storageStatePath?: string } {
-  const raw = process.env.PREFLIGHT_CONFIG_JSON;
+function loadConfigFromEnv(): ResolvedVantageConfig & { storageStatePath?: string } {
+  const raw = process.env.VANTAGE_CONFIG_JSON;
   if (!raw) {
     throw new Error(
-      'preflight: PREFLIGHT_CONFIG_JSON is not set. This config file is intended ' +
-        'to be loaded by `bin/preflight.mjs`, not by `npx playwright test` directly.'
+      'vantage: VANTAGE_CONFIG_JSON is not set. This config file is intended ' +
+        'to be loaded by `bin/vantage.mjs`, not by `npx playwright test` directly.'
     );
   }
   const parsed = JSON.parse(raw) as SerialisedConfig;
@@ -39,10 +39,10 @@ function loadConfigFromEnv(): ResolvedPreflightConfig & { storageStatePath?: str
 
 const cfg = loadConfigFromEnv();
 const profiles = buildViewportProfiles();
-const isCi = process.env.PREFLIGHT_CI === '1';
-const isRelease = process.env.PREFLIGHT_RELEASE === '1';
-const isVisual = process.env.PREFLIGHT_VISUAL === '1';
-const isGate = process.env.PREFLIGHT_GATE === '1';
+const isCi = process.env.VANTAGE_CI === '1';
+const isRelease = process.env.VANTAGE_RELEASE === '1';
+const isVisual = process.env.VANTAGE_VISUAL === '1';
+const isGate = process.env.VANTAGE_GATE === '1';
 
 /**
  * Wall-clock upper bound for the whole Playwright run. The runner
@@ -61,7 +61,7 @@ const isGate = process.env.PREFLIGHT_GATE === '1';
  * `globalTimeoutMs + 90_000` ms (belt + braces; the grace window
  * lets Playwright shut down naturally when globalTimeout fires).
  */
-const globalTimeoutMs = parsePositiveInt(process.env.PREFLIGHT_GLOBAL_TIMEOUT_MS);
+const globalTimeoutMs = parsePositiveInt(process.env.VANTAGE_GLOBAL_TIMEOUT_MS);
 
 function parsePositiveInt(raw: string | undefined): number | undefined {
   if (raw === undefined || raw === '') return undefined;
@@ -92,7 +92,7 @@ const BUILT_IN_RELEASE_ONLY_SPECS = [
 ];
 // Concat unconditional — the per-project testIgnore is applied regardless
 // of isRelease (matches how the built-in three are gated). Outside the
-// release cadence the matched specs simply don't exist under preflight's
+// release cadence the matched specs simply don't exist under vantage's
 // testDir for non-supported projects, so the ignore is a no-op.
 const RELEASE_ONLY_SPECS = [
   ...BUILT_IN_RELEASE_ONLY_SPECS,
@@ -128,10 +128,10 @@ const engineUseMap: Record<EngineName, ReturnType<typeof devices.valueOf> extend
 /**
  * Build the reporter array.
  *
- * preflight always emits an HTML report + a JSON report into
- * .preflight/last-run/ so reviewers have stable artefacts regardless of
+ * vantage always emits an HTML report + a JSON report into
+ * .vantage/last-run/ so reviewers have stable artefacts regardless of
  * console reporter choice. Under --ci we additionally emit a JUnit XML.
- * The console reporter is `list` by default; PREFLIGHT_REPERATER can
+ * The console reporter is `list` by default; VANTAGE_REPERATER can
  * override to line/list/html/json/junit.
  *
  * We dedupe: if the user requests `--reporter=html` we DO NOT add a second
@@ -139,7 +139,7 @@ const engineUseMap: Record<EngineName, ReturnType<typeof devices.valueOf> extend
  * same outputFolder.
  */
 function buildReporters(): NonNullable<PlaywrightTestConfig['reporter']> {
-  const requested = (process.env.PREFLIGHT_REPORTER ?? 'list').toLowerCase();
+  const requested = (process.env.VANTAGE_REPORTER ?? 'list').toLowerCase();
   const reporters: NonNullable<PlaywrightTestConfig['reporter']> = [];
 
   // Console reporter (skip if user requested one of the artefact reporters
@@ -155,11 +155,11 @@ function buildReporters(): NonNullable<PlaywrightTestConfig['reporter']> {
 
   reporters.push([
     'html',
-    { open: 'never', outputFolder: process.env.PREFLIGHT_HTML_REPORT_DIR },
+    { open: 'never', outputFolder: process.env.VANTAGE_HTML_REPORT_DIR },
   ]);
-  reporters.push(['json', { outputFile: process.env.PREFLIGHT_JSON_FILE }]);
+  reporters.push(['json', { outputFile: process.env.VANTAGE_JSON_FILE }]);
   if (isCi) {
-    reporters.push(['junit', { outputFile: process.env.PREFLIGHT_JUNIT_FILE }]);
+    reporters.push(['junit', { outputFile: process.env.VANTAGE_JUNIT_FILE }]);
   }
   return reporters;
 }
@@ -268,11 +268,11 @@ const config: PlaywrightTestConfig = defineConfig({
     video: 'retain-on-failure',
   },
 
-  outputDir: process.env.PREFLIGHT_TEST_RESULTS_DIR,
+  outputDir: process.env.VANTAGE_TEST_RESULTS_DIR,
 
   // Default snapshot baseline location. Playwright's out-of-the-box
   // default is `{testDir}/{testFilePath}-snapshots/{arg}{ext}`, which
-  // for preflight resolves under `node_modules/preflight/dist/specs/`
+  // for vantage resolves under `node_modules/vantage/dist/specs/`
   // — destroyed on every `npm install`. We default to a directory
   // inside the consumer's project so baselines survive reinstalls and
   // can be checked in.
@@ -292,7 +292,7 @@ const config: PlaywrightTestConfig = defineConfig({
   //     `timeout`) leaves this default in place — intentional.
   snapshotPathTemplate: path.join(
     process.cwd(),
-    '__preflight_screenshots__',
+    '__vantage_screenshots__',
     '{arg}{ext}'
   ),
 
@@ -308,12 +308,12 @@ const config: PlaywrightTestConfig = defineConfig({
           // cwd is pre-resolved to an absolute path by the runner — see
           // resolvedWebServer in src/cli/runner.ts. Defaulting here would
           // break if anyone ever invoked this config file outside of
-          // bin/preflight.mjs, but loadConfigFromEnv() above already
+          // bin/vantage.mjs, but loadConfigFromEnv() above already
           // throws in that case.
           cwd: cfg.webServer.cwd,
           timeout: cfg.webServer.timeout ?? 120_000,
           env: cfg.webServer.env,
-          reuseExistingServer: !isCi && process.env.PREFLIGHT_NO_REUSE !== '1',
+          reuseExistingServer: !isCi && process.env.VANTAGE_NO_REUSE !== '1',
           stdout: 'pipe',
           stderr: 'pipe',
         },

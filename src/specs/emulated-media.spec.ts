@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { AxeBuilder } from '@axe-core/playwright';
 import type { Result } from 'axe-core';
-import { loadPreflightConfig } from './_helpers.js';
+import { loadVantageConfig } from './_helpers.js';
 
-const cfg = loadPreflightConfig();
+const cfg = loadVantageConfig();
 const route = cfg.routes[0]!;
-const isSmoke = process.env.PREFLIGHT_SMOKE === '1';
+const isSmoke = process.env.VANTAGE_SMOKE === '1';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'];
 

@@ -1,7 +1,7 @@
-# preflight :: setup-guidepup.ps1
+# vantage :: setup-guidepup.ps1
 #
 # Wrapper around `npx guidepup-setup` for Windows hosts. Run once on each
-# developer / CI machine before `preflight --release` can exercise the
+# developer / CI machine before `vantage --release` can exercise the
 # real NVDA spec. The underlying `@guidepup/setup` package:
 #
 #   1. Downloads the NVDA installer (current LTS).
@@ -14,7 +14,7 @@
 #   - Microsoft Defender Real-time Protection scans the installer.
 #     Expect ~30s of CPU on the AV process. No action needed.
 #   - User Account Control prompts to elevate the NVDA installer.
-#     CLICK YES. preflight cannot click this for you.
+#     CLICK YES. vantage cannot click this for you.
 #   - SmartScreen MAY prompt if the installer signature is not yet
 #     in the local reputation cache. Click "More info" -> "Run anyway".
 #   - Corporate AV / SCCM endpoint policies may quarantine the binary
@@ -30,11 +30,11 @@
 $ErrorActionPreference = 'Stop'
 
 if ($IsLinux -or $IsMacOS) {
-    Write-Host "preflight setup-guidepup: NVDA only exists on Windows; skipping on $($PSVersionTable.OS)." -ForegroundColor Yellow
+    Write-Host "vantage setup-guidepup: NVDA only exists on Windows; skipping on $($PSVersionTable.OS)." -ForegroundColor Yellow
     exit 0
 }
 
-Write-Host "preflight setup-guidepup: launching @guidepup/setup ..." -ForegroundColor Cyan
+Write-Host "vantage setup-guidepup: launching @guidepup/setup ..." -ForegroundColor Cyan
 Write-Host "  expect: NVDA download, UAC elevation prompt, possible SmartScreen warning." -ForegroundColor DarkGray
 Write-Host ""
 
@@ -45,16 +45,16 @@ Write-Host ""
 # anyway. Invoking the underlying script via `node` sidesteps both.
 #
 # Resolution order: consumer CWD first (consumer's own install of
-# @guidepup/setup as a devDep of their project), then preflight's
-# bundled copy (for the preflight maintainer running from a checkout).
+# @guidepup/setup as a devDep of their project), then vantage's
+# bundled copy (for the vantage maintainer running from a checkout).
 $candidates = @(
     (Join-Path $PWD.Path 'node_modules\@guidepup\setup\bin\setup'),
     (Join-Path (Resolve-Path -Path (Join-Path $PSScriptRoot '..')).Path 'node_modules\@guidepup\setup\bin\setup')
 )
 $setupBin = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $setupBin) {
-    Write-Host "preflight setup-guidepup: @guidepup/setup is not installed." -ForegroundColor Red
-    Write-Host "preflight ships @guidepup/setup as a devDep only — install it in your" -ForegroundColor Yellow
+    Write-Host "vantage setup-guidepup: @guidepup/setup is not installed." -ForegroundColor Red
+    Write-Host "vantage ships @guidepup/setup as a devDep only — install it in your" -ForegroundColor Yellow
     Write-Host "consuming project before running this script:" -ForegroundColor Yellow
     Write-Host "" -ForegroundColor Yellow
     Write-Host "    npm i -D @guidepup/setup @guidepup/guidepup @guidepup/playwright" -ForegroundColor White
@@ -66,18 +66,18 @@ $exit = $LASTEXITCODE
 
 if ($exit -ne 0) {
     Write-Host ""
-    Write-Host "preflight setup-guidepup: @guidepup/setup exited $exit." -ForegroundColor Red
+    Write-Host "vantage setup-guidepup: @guidepup/setup exited $exit." -ForegroundColor Red
     Write-Host "Common causes:" -ForegroundColor Yellow
     Write-Host "  - UAC prompt denied or auto-rejected by policy" -ForegroundColor Yellow
     Write-Host "  - SmartScreen blocked the NVDA installer" -ForegroundColor Yellow
     Write-Host "  - Corporate AV quarantined the download" -ForegroundColor Yellow
     Write-Host "  - No network access to NVDA's download CDN" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Re-run after addressing the cause. preflight --release will" -ForegroundColor Yellow
+    Write-Host "Re-run after addressing the cause. vantage --release will" -ForegroundColor Yellow
     Write-Host "skip the NVDA spec gracefully until setup completes." -ForegroundColor Yellow
     exit $exit
 }
 
 Write-Host ""
-Write-Host "preflight setup-guidepup: OK. `preflight --release` can now run the NVDA spec." -ForegroundColor Green
+Write-Host "vantage setup-guidepup: OK. `vantage --release` can now run the NVDA spec." -ForegroundColor Green
 exit 0

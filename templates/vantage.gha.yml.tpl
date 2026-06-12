@@ -1,8 +1,8 @@
-# preflight :: GitHub Actions workflow template
+# vantage :: GitHub Actions workflow template
 #
-# Dropped by `preflight init --ci`. Edit freely — this is a starting
+# Dropped by `vantage init --ci`. Edit freely — this is a starting
 # point, not a managed file. The four jobs mirror the four cadences
-# preflight ships:
+# vantage ships:
 #
 #   smoke    every push on every branch (fast: ~1 min)
 #   full     on PR open / push to main  (engine x viewport matrix)
@@ -18,7 +18,7 @@
 #   - Caching: cache the Playwright browsers if your build minutes
 #     matter; uncomment the `cache: 'playwright'` block.
 
-name: preflight
+name: vantage
 
 on:
   push:
@@ -42,12 +42,12 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npx preflight --smoke --ci
+      - run: npx vantage --smoke --ci
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: preflight-smoke
-          path: .preflight/last-run/
+          name: vantage-smoke
+          path: .vantage/last-run/
           retention-days: 7
 
   full:
@@ -62,12 +62,12 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npx playwright install --with-deps
-      - run: npx preflight --ci
+      - run: npx vantage --ci
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: preflight-full
-          path: .preflight/last-run/
+          name: vantage-full
+          path: .vantage/last-run/
           retention-days: 14
 
   release:
@@ -90,7 +90,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: |
-          # @guidepup/setup is a devDep of preflight, so it should be
+          # @guidepup/setup is a devDep of vantage, so it should be
           # under node_modules after `npm ci`. The defensive `npm ls`
           # surfaces a clear error if the consumer hasn't actually
           # installed the optional v0.2 extras; otherwise the setup
@@ -101,12 +101,12 @@ jobs:
             exit 1
           }
           node node_modules/@guidepup/setup/bin/setup
-      - run: npx preflight --release --ci
+      - run: npx vantage --release --ci
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: preflight-release
-          path: .preflight/last-run/
+          name: vantage-release
+          path: .vantage/last-run/
           retention-days: 30
 
   links:
@@ -128,13 +128,13 @@ jobs:
         with:
           # `args: --version` is a no-op invocation that just downloads
           # and caches the binary onto PATH. The actual link check
-          # runs in the next step via preflight, not via this action,
+          # runs in the next step via vantage, not via this action,
           # so we don't want to double-execute lychee here.
           args: --version
-      - run: npx preflight --links
+      - run: npx vantage --links
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: preflight-links
-          path: .preflight/last-run/
+          name: vantage-links
+          path: .vantage/last-run/
           retention-days: 14

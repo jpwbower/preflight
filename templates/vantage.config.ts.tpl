@@ -1,13 +1,13 @@
-import { defineConfig } from 'preflight';
+import { defineConfig } from 'vantage';
 
 /**
- * preflight.config.ts
+ * vantage.config.ts
  *
  * Edit the values below for your project. Required: baseURL, routes,
- * webServer. Run `npx preflight --smoke` after editing for a fast sanity
+ * webServer. Run `npx vantage --smoke` after editing for a fast sanity
  * check (chromium-only, single mobile viewport).
  *
- * Full surface: `npx preflight --help`
+ * Full surface: `npx vantage --help`
  */
 export default defineConfig({
   // Base URL the routes are appended to. Use 127.0.0.1 over `localhost` if
@@ -21,7 +21,7 @@ export default defineConfig({
   ],
 
   // Either `false` (you start your server yourself / are testing a remote URL)
-  // or a config object. preflight passes this straight through to Playwright's
+  // or a config object. vantage passes this straight through to Playwright's
   // webServer config.
   webServer: {
     command: 'npm run dev',
@@ -34,7 +34,7 @@ export default defineConfig({
   // when initial fetches + hydration are done. Replaces flaky `networkidle`.
   // readyMarker: '[data-test-ready]',
 
-  // Optional: extra console-ignore patterns. Concatenated with preflight's
+  // Optional: extra console-ignore patterns. Concatenated with vantage's
   // built-in defaults (analytics adblock noise, framework deprecation
   // warnings, extension chatter). Never replaces.
   // consoleIgnore: [
@@ -42,7 +42,7 @@ export default defineConfig({
   // ],
 
   // Optional: disabled axe rules. Each entry MUST include a `reason` —
-  // preflight surfaces disabled rules in a loud banner on every report.
+  // vantage surfaces disabled rules in a loud banner on every report.
   // axeDisabled: [
   //   {
   //     rule: 'color-contrast',

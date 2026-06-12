@@ -11,7 +11,7 @@ export interface ViewportProfile {
 }
 
 /**
- * Build the five preflight viewport profiles. We re-use Playwright's `devices`
+ * Build the five vantage viewport profiles. We re-use Playwright's `devices`
  * descriptors where they exist so the viewport matches a real-world device
  * (DPR, touch, UA) rather than just a width.
  *
@@ -24,7 +24,7 @@ export function buildViewportProfiles(): Record<ViewportName, ViewportProfile> {
 
   if (!iPhone13 || !iPadGen7) {
     throw new Error(
-      'preflight: Playwright `devices` is missing iPhone 13 or iPad (gen 7). ' +
+      'vantage: Playwright `devices` is missing iPhone 13 or iPad (gen 7). ' +
         'Upgrade @playwright/test to >=1.50.0.'
     );
   }

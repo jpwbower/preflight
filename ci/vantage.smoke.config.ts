@@ -1,4 +1,8 @@
-import { defineConfig } from 'preflight';
+import { defineConfig } from 'vantage';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 // CI smoke config: runs against the local ci/fixture/index.html
 // served by http-server on port 5050. Deterministic — example.com
@@ -11,6 +15,7 @@ export default defineConfig({
   webServer: {
     command: 'npx http-server fixture -p 5050 -c-1 --silent',
     url: 'http://127.0.0.1:5050',
+    cwd: configDir,
     timeout: 30_000,
   },
 });

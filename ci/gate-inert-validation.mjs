@@ -10,8 +10,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const ciDir = path.dirname(__filename);
 const repoRoot = path.dirname(ciDir);
-const binPath = path.join(repoRoot, 'bin', 'preflight.mjs');
-const manifestPath = path.join(ciDir, '.preflight', 'last-run', 'gate-manifest.json');
+const binPath = path.join(repoRoot, 'bin', 'vantage.mjs');
+const manifestPath = path.join(ciDir, '.vantage', 'last-run', 'gate-manifest.json');
 
 if (process.argv.includes('--serve')) {
   serveFixture();
@@ -48,7 +48,7 @@ async function runValidation() {
   const { run } = await import(pathToFileURL(path.join(repoRoot, 'dist', 'cli', 'runner.js')).href);
   const { computeManifestSha256 } = await import(pathToFileURL(path.join(repoRoot, 'dist', 'gate', 'manifest.js')).href);
 
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'preflight-gate-inert-'));
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'vantage-gate-inert-'));
   try {
     const authSideEffect = path.join(tmp, 'auth-ran.txt');
     const authSetup = path.join(tmp, 'auth-setup.mjs');
@@ -69,7 +69,7 @@ async function runValidation() {
 
     expectConfigError(
       'relative --config',
-      runPreflight(['--gate', '--config', 'gate-relative.json']),
+      runVantage(['--gate', '--config', 'gate-relative.json']),
       'ABSOLUTE path'
     );
 
@@ -78,7 +78,7 @@ async function runValidation() {
     try {
       expectConfigError(
         'absolute --config inside checkout from nested cwd',
-        runPreflight(['--gate', '--config', insideConfig]),
+        runVantage(['--gate', '--config', insideConfig]),
         'outside the current project checkout'
       );
     } finally {
@@ -86,19 +86,19 @@ async function runValidation() {
     }
 
     // Cwd-INDEPENDENT provenance: a config inside a FOREIGN git checkout is
-    // rejected even when preflight runs from an unrelated cwd. Simulates the
-    // honest misconfig — the driver runs preflight from a scratch dir but
+    // rejected even when vantage runs from an unrelated cwd. Simulates the
+    // honest misconfig — the driver runs vantage from a scratch dir but
     // --config points into the real PR checkout. cwd here is repoRoot (NOT an
     // ancestor of the fake repo), so only the config's own enclosing-repo check
     // can catch it.
-    const fakeRepo = mkdtempSync(path.join(os.tmpdir(), 'preflight-gate-fakerepo-'));
+    const fakeRepo = mkdtempSync(path.join(os.tmpdir(), 'vantage-gate-fakerepo-'));
     try {
       mkdirSync(path.join(fakeRepo, '.git'));
       const foreignConfig = path.join(fakeRepo, 'gate-config.json');
       writeFileSync(foreignConfig, JSON.stringify(base, null, 2), 'utf8');
       expectConfigError(
         'absolute --config inside a FOREIGN git checkout (scratch cwd)',
-        runPreflight(['--gate', '--config', foreignConfig], repoRoot),
+        runVantage(['--gate', '--config', foreignConfig], repoRoot),
         'inside a git checkout'
       );
     } finally {
@@ -107,7 +107,7 @@ async function runValidation() {
 
     expectConfigError(
       'auth.setup',
-      runPreflight(['--gate', '--config', writeConfig(tmp, 'auth.json', { ...base, auth: { setup: authSetup } })]),
+      runVantage(['--gate', '--config', writeConfig(tmp, 'auth.json', { ...base, auth: { setup: authSetup } })]),
       'cannot include "auth"'
     );
     if (existsSync(authSideEffect)) {
@@ -116,7 +116,7 @@ async function runValidation() {
 
     expectConfigError(
       'playwrightOverrides.globalSetup',
-      runPreflight([
+      runVantage([
         '--gate',
         '--config',
         writeConfig(tmp, 'playwright-overrides.json', {
@@ -132,7 +132,7 @@ async function runValidation() {
 
     expectConfigError(
       'webServer.command',
-      runPreflight([
+      runVantage([
         '--gate',
         '--config',
         writeConfig(tmp, 'webserver-command.json', {
@@ -145,17 +145,17 @@ async function runValidation() {
 
     expectConfigError(
       'non-allowlisted key',
-      runPreflight(['--gate', '--config', writeConfig(tmp, 'non-allowlisted.json', { ...base, htmlValidateRaw: true })]),
+      runVantage(['--gate', '--config', writeConfig(tmp, 'non-allowlisted.json', { ...base, htmlValidateRaw: true })]),
       'non-allowlisted key "htmlValidateRaw"'
     );
 
     expectConfigError(
       'render-health suppression',
-      runPreflight(['--gate', '--config', writeConfig(tmp, 'console-ignore.json', { ...base, consoleIgnore: ['.*'] })]),
+      runVantage(['--gate', '--config', writeConfig(tmp, 'console-ignore.json', { ...base, consoleIgnore: ['.*'] })]),
       'cannot include "consoleIgnore"'
     );
 
-    await expectRunnerBackstop('runner auth backstop', run, validateAndResolve, {
+    await assertRunnerBackstop('runner auth backstop', run, validateAndResolve, {
       ...base,
       auth: { setup: authSetup },
     });
@@ -163,7 +163,7 @@ async function runValidation() {
       fail('auth.setup side effect file was created; runner backstop imported auth setup');
     }
 
-    await expectRunnerBackstop('runner playwrightOverrides backstop', run, validateAndResolve, {
+    await assertRunnerBackstop('runner playwrightOverrides backstop', run, validateAndResolve, {
       ...base,
       playwrightOverrides: { globalSetup },
     });
@@ -178,10 +178,10 @@ async function runValidation() {
     let manifest1;
     let manifest2;
     try {
-      const first = runPreflight(['--gate', '--config', goodConfig, '--reporter=line']);
+      const first = runVantage(['--gate', '--config', goodConfig, '--reporter=line']);
       expectSuccess('positive gate run 1', first);
       manifest1 = readManifest();
-      const second = runPreflight(['--gate', '--config', goodConfig, '--reporter=line']);
+      const second = runVantage(['--gate', '--config', goodConfig, '--reporter=line']);
       expectSuccess('positive gate run 2', second);
       manifest2 = readManifest();
     } finally {
@@ -244,7 +244,7 @@ function writeConfig(tmp, name, config) {
   return p;
 }
 
-function runPreflight(args, cwd = ciDir) {
+function runVantage(args, cwd = ciDir) {
   return spawnSync(process.execPath, [binPath, ...args], {
     cwd,
     encoding: 'utf8',
@@ -269,13 +269,13 @@ function expectSuccess(name, result) {
   }
 }
 
-async function expectRunnerBackstop(name, run, validateAndResolve, rawConfig) {
+async function assertRunnerBackstop(name, run, validateAndResolve, rawConfig) {
   const { value: result, stderr } = await captureProcessStderr(() =>
     run({
       args: gateArgs(),
       rawConfig: validateAndResolve(rawConfig),
       consumerCwd: ciDir,
-      preflightVersion: 'gate-inert-validation',
+      vantageVersion: 'gate-inert-validation',
     })
   );
   if (result.exitCode !== 2) {
@@ -290,17 +290,17 @@ async function expectRunnerBackstop(name, run, validateAndResolve, rawConfig) {
 async function expectPlaywrightConfigBackstop(tmp, base, validateAndResolve, globalSetup, globalSetupSideEffect) {
   const resolved = validateAndResolve({ ...base, webServer: false });
   const previousEnv = {
-    PREFLIGHT_CONFIG_JSON: process.env.PREFLIGHT_CONFIG_JSON,
-    PREFLIGHT_GATE: process.env.PREFLIGHT_GATE,
-    PREFLIGHT_HTML_REPORT_DIR: process.env.PREFLIGHT_HTML_REPORT_DIR,
-    PREFLIGHT_JSON_FILE: process.env.PREFLIGHT_JSON_FILE,
-    PREFLIGHT_TEST_RESULTS_DIR: process.env.PREFLIGHT_TEST_RESULTS_DIR,
+    VANTAGE_CONFIG_JSON: process.env.VANTAGE_CONFIG_JSON,
+    VANTAGE_GATE: process.env.VANTAGE_GATE,
+    VANTAGE_HTML_REPORT_DIR: process.env.VANTAGE_HTML_REPORT_DIR,
+    VANTAGE_JSON_FILE: process.env.VANTAGE_JSON_FILE,
+    VANTAGE_TEST_RESULTS_DIR: process.env.VANTAGE_TEST_RESULTS_DIR,
   };
-  process.env.PREFLIGHT_GATE = '1';
-  process.env.PREFLIGHT_HTML_REPORT_DIR = path.join(tmp, 'html-report');
-  process.env.PREFLIGHT_JSON_FILE = path.join(tmp, 'results.json');
-  process.env.PREFLIGHT_TEST_RESULTS_DIR = path.join(tmp, 'test-results');
-  process.env.PREFLIGHT_CONFIG_JSON = JSON.stringify({
+  process.env.VANTAGE_GATE = '1';
+  process.env.VANTAGE_HTML_REPORT_DIR = path.join(tmp, 'html-report');
+  process.env.VANTAGE_JSON_FILE = path.join(tmp, 'results.json');
+  process.env.VANTAGE_TEST_RESULTS_DIR = path.join(tmp, 'test-results');
+  process.env.VANTAGE_CONFIG_JSON = JSON.stringify({
     ...resolved,
     consoleIgnore: resolved.consoleIgnore.map((r) => ({ source: r.source, flags: r.flags })),
     playwrightOverrides: {
