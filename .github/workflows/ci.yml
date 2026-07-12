@@ -61,6 +61,14 @@ jobs:
           npm ci
           npm run build
 
+      - name: Exports-resolution check
+        # Guards the exports map: `import ... from 'vantage'` must resolve
+        # under BOTH the import condition (ESM consumers) and the require
+        # condition (CJS-default consumers, whose vantage.config.ts tsx
+        # transpiles to require('vantage')). v0.7.0 shipped import-only and
+        # broke `vantage --smoke` before browser launch on such consumers.
+        run: node ci/exports-resolution-check.mjs
+
       - name: Pack tarball
         id: pack
         shell: bash
@@ -80,7 +88,10 @@ jobs:
           # has somewhere to put node_modules. The tarball install pulls
           # vantage as a real dep + we add @playwright/test (peerDep) and
           # http-server (the webServer in vantage.smoke.config.ts).
-          # `type: module` is load-bearing: vantage is ESM-only.
+          # `type: module` matches the reference consumer's shape (an ESM
+          # project). CJS-default consumers (npm init sets no "type") are
+          # covered by the exports-resolution check above — vantage's exports
+          # map must keep resolving under the require condition too.
           npm init -y >/dev/null
           npm pkg set type=module
           npm install --no-save \

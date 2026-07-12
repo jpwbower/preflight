@@ -13,7 +13,9 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
@@ -31,7 +33,8 @@
   "scripts": {
     "prepare": "tsc -p tsconfig.build.json",
     "build": "tsc -p tsconfig.build.json",
-    "test": "npm exec -- vantage --config ci/vantage.smoke.config.ts --smoke --ci",
+    "test": "node ci/exports-resolution-check.mjs && npm exec -- vantage --config ci/vantage.smoke.config.ts --smoke --ci",
+    "test:exports": "node ci/exports-resolution-check.mjs",
     "validate:gate-inert": "npm run build && node ci/gate-inert-validation.mjs"
   },
   "peerDependencies": {
