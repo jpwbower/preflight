@@ -114,12 +114,26 @@ async function loadConsumerConfig(configPath, consumerCwd) {
     // dep so it is always available).
     try {
       const tsx = await dynamicImportPreferringConsumer('tsx/esm/api', consumerCwd);
-      // tsImport accepts a specifier + parent URL. On Windows an absolute
-      // path like `D:\...` is mis-parsed as a URL with scheme `d:`, so we
-      // convert to a file:// URL first.
+      // On Windows an absolute path like `D:\...` is mis-parsed as a URL with
+      // scheme `d:`, so we convert to a file:// URL first.
       const configUrl = pathToFileURL(configPath).href;
-      const loaded = await tsx.tsImport(configUrl, import.meta.url);
-      return loaded.default ?? loaded;
+      // register() + import(), NOT tsImport(): tsImport scopes its hooks
+      // behind a `?namespace=<id>` query that tsx also appends to module
+      // paths resolved INSIDE the config. In a CJS-shaped consumer
+      // (package.json without `"type": "module"`) the config's
+      // `import ... from 'vantage'` is transpiled to require('vantage'),
+      // and the namespace-suffixed resolution (`...dist/index.js?namespace=N`)
+      // reaches Node's ESM loader as a literal filename ->
+      // ERR_MODULE_NOT_FOUND before the browser ever launches. Unscoped
+      // register() appends no query; the hooks come off again right after
+      // this one-shot load.
+      const unregister = tsx.register();
+      try {
+        const loaded = await import(configUrl);
+        return unwrapModuleDefault(loaded);
+      } finally {
+        await unregister();
+      }
     } catch (err) {
       // Validation errors thrown FROM the consumer's config body (e.g. they
       // called defineConfig with a bad value) must reach the user verbatim.
@@ -137,7 +151,22 @@ async function loadConsumerConfig(configPath, consumerCwd) {
   }
   // Plain JS / ESM
   const mod = await import(pathToFileURL(configPath).href);
-  return mod.default ?? mod;
+  return unwrapModuleDefault(mod);
+}
+
+/**
+ * Peel a dynamically imported config module down to the config object.
+ * ESM configs export it as `default`. A CJS-shaped consumer's TS config
+ * (package.json without `"type": "module"`) is transpiled to CommonJS with
+ * an `__esModule` + `default` interop wrapper, and dynamic import() wraps
+ * `module.exports` once more — unwrap that inner layer too.
+ */
+function unwrapModuleDefault(mod) {
+  let m = mod.default ?? mod;
+  if (m && typeof m === 'object' && m.__esModule && 'default' in m) {
+    m = m.default;
+  }
+  return m;
 }
 
 class ConfigError extends Error {

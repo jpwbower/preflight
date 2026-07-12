@@ -843,12 +843,33 @@ async function importDefaultFn(modPath: string, consumerCwd: string): Promise<()
   let mod: { default?: unknown } & Record<string, unknown>;
   if (ext === '.ts' || ext === '.mts') {
     const tsx = (await dynamicImportPreferringConsumer('tsx/esm/api', consumerCwd)) as {
-      tsImport: (specifier: string, parentURL: string) => Promise<unknown>;
+      register: () => () => Promise<void>;
     };
     const url = pathToFileURL(modPath).href;
-    mod = (await tsx.tsImport(url, import.meta.url)) as typeof mod;
+    // register() + import(), NOT tsImport(): tsImport's `?namespace=<id>`
+    // query is appended to module paths resolved inside the setup module,
+    // which breaks require()-of-ESM resolution in CJS-shaped consumers
+    // (same defect as the config loader in bin/vantage.mjs — see there).
+    const unregister = tsx.register();
+    try {
+      mod = (await import(url)) as typeof mod;
+    } finally {
+      await unregister();
+    }
   } else {
     mod = (await import(pathToFileURL(modPath).href)) as typeof mod;
+  }
+  // CJS-shaped consumers: the transpiled setup module arrives as
+  // `{ default: { __esModule, default: fn } }` — unwrap the interop layer
+  // so the checks below see the real default export.
+  const inner = mod.default;
+  if (
+    inner &&
+    typeof inner === 'object' &&
+    (inner as { __esModule?: boolean }).__esModule &&
+    'default' in inner
+  ) {
+    mod = inner as typeof mod;
   }
   if (typeof mod.default === 'function') {
     return mod.default as () => unknown;
